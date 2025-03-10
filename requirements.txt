@@ -7,4 +7,4 @@ glob
 warnings
 scipy
 math
-git+https://github.com/yangyangMarine/opensoundscape.git@yangyangMarine
+git+https://github.com/yangyangMarine/opensoundscape.git@master
