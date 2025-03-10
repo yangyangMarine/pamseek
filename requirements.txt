@@ -1,0 +1,10 @@
+xarray
+numpy
+tqdm
+matplotlib
+IPython
+glob
+warnings
+scipy
+math
+git+https://github.com/yangyangMarine/opensoundscape.git@yangyangMarine
