@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 
-def plot_psd(f, Pxx_dB, xscale='log', yscale='linear', width=12, height=6,
+def plot_psd(f, Pxx_dB, xscale='log', yscale='linear', width=8, height=4,
              title='Power Spectral Density', grid=True, xlim=None, ylim=None, 
              save=False, filename='psd_plot.png', dpi=300, color='b'):
     """
@@ -74,7 +74,7 @@ def plot_psd(f, Pxx_dB, xscale='log', yscale='linear', width=12, height=6,
     plt.show()
     return fig
 
-def plot_spectrogram(f, t, Sxx_dB, xscale='linear', yscale='log', width=12, height=6,
+def plot_spectrogram(f, t, Sxx_dB, xscale='linear', yscale='log', width=8, height=4,
                      title='Spectrogram', grid=True, xlim=None, ylim=[1, 48000], 
                      cmap='viridis', vmin=None, vmax=None, colorbar_label='PSD [dB re 1 µPa²/Hz]',
                      save=False, filename='spectrogram_plot.png', dpi=300,
@@ -188,7 +188,7 @@ def plot_spectrogram(f, t, Sxx_dB, xscale='linear', yscale='log', width=12, heig
     return fig
 
 def plot_psd_with_percentiles(f, Sxx_dB, percentiles=None, xscale='log', yscale='linear', 
-                             width=12, height=6, title='PSD with Percentiles', grid=True, 
+                             width=8, height=4, title='PSD with Percentiles', grid=True, 
                              xlim=None, ylim=None, save=False, filename='psd_percentiles.png', 
                              dpi=300, colors=None):
     """
