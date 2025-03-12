@@ -243,8 +243,8 @@ def plot_psd_with_percentiles(f, Sxx_dB, percentiles=None, xscale='log', yscale=
     plt.xlabel('Frequency [Hz]')
     plt.ylabel('Power Spectral Density [dB re 1 µPa²/Hz]')
     plt.grid(grid)
-    plt.legend()
-    
+    plt.legend(loc='lower left')
+
     plt.tight_layout()
     
     if save:
