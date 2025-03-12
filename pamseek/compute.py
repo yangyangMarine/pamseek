@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import scipy.signal as signal
 
 def compute_psd(audio_data, fs=None, window='hann', window_length=1.0, overlap=0.5, scaling='density'):
@@ -56,9 +57,9 @@ def compute_psd(audio_data, fs=None, window='hann', window_length=1.0, overlap=0
     return f, Pxx_db
 
 
-def compute_spectrogram(audio_data, fs=None, window='hann', window_length=1.0, overlap=0.5, scaling='density'):
+def compute_spectral_metrics(audio_data, fs=None, window='hann', window_length=1.0, overlap=0.5, scaling='density'):
     """
-    Computes the spectrogram of audio data and related statistics.
+    Computes the spectral metrics of audio data
     
     Parameters:
     -----------
@@ -100,7 +101,7 @@ def compute_spectrogram(audio_data, fs=None, window='hann', window_length=1.0, o
     noverlap = int(nperseg * overlap)
     
     # Calculate spectrogram
-    f, t, Sxx = signal.spectrogram(
+    f, t, psd = signal.spectrogram(
         samples, 
         fs=sample_rate,
         window=window, 
@@ -110,30 +111,30 @@ def compute_spectrogram(audio_data, fs=None, window='hann', window_length=1.0, o
     )
     
     # Reference pressure for underwater acoustics
-    P_ref = 1e-6  # 1 µPa in Pa
+    p_ref = 1e-6  # 1 µPa in Pa
     
-    # Compute SPL for each time bin (over frequency, axis=0)
-    spl = 10 * np.log10(np.sum(Sxx * (f[1] - f[0]), axis=0) / (p_ref**2))
+    # Compute SPL
+    spl = 10 * np.log10(psd / (p_ref**2))
 
-    # Compute rmsSPL
-    spl_rms = 10 * np.log10(np.mean(10**(spl / 10)))
+    # Compute RMS SPL, over frequencies)
+    spl_rms = 10 * np.log10(np.mean(10**(spl / 10), axis=0))
     
     # Convert spectrogram to dB re 1 µPa²/Hz
     # Avoid log of zero by adding small constant
     epsilon = np.finfo(float).eps
-    Sxx_db = 10 * np.log10(Sxx / (P_ref**2) + epsilon)
+    psd_db = 10 * np.log10(psd / (p_ref**2) + epsilon)
     
     # Calculate RMS levels for each frequency bin
     # Work with linear values first, then convert to dB, integrating over time (axis=1), freuqency (axis=0)
-    psd_rms = 10 * np.log10(np.mean(Sxx, axis=1) / (P_ref**2) + epsilon)
+    psd_rms = 10 * np.log10(np.mean(psd, axis=1) / (p_ref**2) + epsilon)
     
     # Calculate percentiles for each frequency bin
     percentiles = {
-        "1%": np.percentile(Sxx_db, 1, axis=1),
-        "5%": np.percentile(Sxx_db, 5, axis=1),
-        "50%": np.percentile(Sxx_db, 50, axis=1),
-        "95%": np.percentile(Sxx_db, 95, axis=1),
-        "99%": np.percentile(Sxx_db, 99, axis=1)
+        "1%": np.percentile(psd_db, 1, axis=1),
+        "5%": np.percentile(psd_db, 5, axis=1),
+        "50%": np.percentile(psd_db, 50, axis=1),
+        "95%": np.percentile(psd_db, 95, axis=1),
+        "99%": np.percentile(psd_db, 99, axis=1)
     }
     
-    return f, t, Sxx_db, psd_rms, percentiles, spl, spl_rms
+    return f, t, psd_db, psd_rms, percentiles, spl, spl_rms
