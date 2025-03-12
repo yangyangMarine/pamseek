@@ -75,13 +75,13 @@ def plot_psd(f, Pxx_dB, xscale='log', yscale='linear', width=12, height=6,
     return fig
 
 def plot_spectrogram(f, t, Sxx_dB, xscale='linear', yscale='log', width=12, height=6,
-                     title='Spectrogram', grid=True, xlim=None, ylim=None, 
+                     title='Spectrogram', grid=True, xlim=None, ylim=[1, 48000], 
                      cmap='viridis', vmin=None, vmax=None, colorbar_label='PSD [dB re 1 µPa²/Hz]',
                      save=False, filename='spectrogram_plot.png', dpi=300,
-                     downsample=False, segment_length=60):
+                     downsample=True, segment_length=60):
     """
     Plots a spectrogram from time-frequency analysis with optional downsampling.
-
+    
     Parameters:
     -----------
     f : numpy.ndarray
@@ -105,7 +105,7 @@ def plot_spectrogram(f, t, Sxx_dB, xscale='linear', yscale='log', width=12, heig
     xlim : tuple, optional
         Limits for x-axis (min, max) (default: None)
     ylim : tuple, optional
-        Limits for y-axis (min, max). If None, defaults to [f.min(), f.max()].
+        Limits for y-axis (min, max) (default: [1, 12000])
     cmap : str, optional
         Colormap for spectrogram (default: 'viridis')
     vmin : float, optional
@@ -124,7 +124,7 @@ def plot_spectrogram(f, t, Sxx_dB, xscale='linear', yscale='log', width=12, heig
         Whether to downsample the data (default: False)
     segment_length : int, optional
         Length of each segment in seconds for downsampling (default: 60)
-
+        
     Returns:
     --------
     matplotlib.figure.Figure
@@ -154,10 +154,6 @@ def plot_spectrogram(f, t, Sxx_dB, xscale='linear', yscale='log', width=12, heig
         t_plot = t
         Sxx_dB_plot = Sxx_dB
     
-    # Set y-axis limits if not provided
-    if ylim is None:
-        ylim = [f.min(), f.max()]  # Default to full frequency range
-
     fig = plt.figure(figsize=(width, height))
     
     # Plot the spectrogram
@@ -167,10 +163,11 @@ def plot_spectrogram(f, t, Sxx_dB, xscale='linear', yscale='log', width=12, heig
     plt.xscale(xscale)
     plt.yscale(yscale)
     
-    # Set axis limits
+    # Set axis limits if provided
     if xlim is not None:
         plt.xlim(xlim)
-    plt.ylim(ylim)  # Use the provided or default y-axis limits
+    if ylim is not None:
+        plt.ylim(ylim)
     
     # Add colorbar
     cbar = plt.colorbar(pcm)
