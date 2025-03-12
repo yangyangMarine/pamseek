@@ -67,12 +67,14 @@ def plot_psd(f, Pxx_dB, xscale='log', yscale='linear', width=8, height=4,
     
     plt.tight_layout()
     
+    #  Save as file?                  
     if save:
         plt.savefig(filename, dpi=dpi, bbox_inches='tight')
         print(f"Plot saved as {os.path.abspath(filename)}")
     
+    # Return to None is needed otherwise jupyter notebook will print 2 plots
     plt.show()
-    return fig
+    return None
 
 def plot_spectrogram(f, t, Sxx_dB, xscale='linear', yscale='log', width=8, height=4,
                      title='Spectrogram', grid=True, xlim=None, ylim=[1, 48000], 
@@ -180,12 +182,14 @@ def plot_spectrogram(f, t, Sxx_dB, xscale='linear', yscale='log', width=8, heigh
     
     plt.tight_layout()
     
+    #  Save as file?                  
     if save:
         plt.savefig(filename, dpi=dpi, bbox_inches='tight')
         print(f"Plot saved as {os.path.abspath(filename)}")
     
+    # Return to None is needed otherwise jupyter notebook will print 2 plots
     plt.show()
-    return fig
+    return None
 
 
 def plot_spectrum_line(x, y, percentiles=None, xscale='log', yscale='linear', 
@@ -282,11 +286,12 @@ def plot_spectrum_line(x, y, percentiles=None, xscale='log', yscale='linear',
     plt.legend(loc='lower left')
 
     plt.tight_layout()
-    
-    # Save the plot if requested
+
+    #  Save as file?                  
     if save:
         plt.savefig(filename, dpi=dpi, bbox_inches='tight')
         print(f"Plot saved as {os.path.abspath(filename)}")
     
+    # Return to None is needed otherwise jupyter notebook will print 2 plots
     plt.show()
-    return fig
+    return None
