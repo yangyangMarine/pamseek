@@ -129,7 +129,13 @@ def plot_spectrogram(f, t, Sxx_dB, xscale='linear', yscale='log', width=12, heig
     
     # Plot the spectrogram
     pcm = plt.pcolormesh(t, f, Sxx_dB, shading='auto', cmap=cmap, vmin=vmin, vmax=vmax)
-    
+
+    plt.title('Spectrogram of Audio Signal')
+    plt.xlabel('Time [s]')
+    plt.ylabel('Frequency [Hz]')
+    plt.grid(True)
+    plt.show()
+
     # Set x and y axis scales
     plt.xscale(xscale)
     plt.yscale(yscale)
