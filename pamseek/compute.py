@@ -2,6 +2,40 @@ import numpy as np
 import pandas as pd
 import scipy.signal as signal
 
+
+def compute_spectral_stats(f=None, t=None, psd_rms=None, spl_rms=None):
+    # Function to compute statistics of the given variables and print in a table format
+    
+    # List of 1D arrays (check if they are not None)
+    arrays = {
+        'Frequency (f)': f,
+        'Time (t)': t,
+        'PSD RMS': psd_rms,
+        'RMS SPL': spl_rms
+    }
+
+    stats = {}
+
+    # Iterate through each variable
+    for label, arr in arrays.items():
+        if arr is not None:  # If the array is not None, calculate stats
+            stats[label] = {
+                'Min': np.min(arr),
+                'Max': np.max(arr),
+                'Mean': np.mean(arr),
+                'Std Dev': np.std(arr),
+                'Size': arr.size
+            }
+        else:
+            stats[label] = 'Missing data'
+
+    # Convert stats to a pandas DataFrame for pretty printing
+    stats_df = pd.DataFrame(stats)
+
+    # Print the stats table
+    print(stats_df)
+
+
 def compute_psd(audio_data, fs=None, window='hann', window_length=1.0, overlap=0.5, scaling='density'):
     """
     Computes the Power Spectral Density (PSD) of audio data using Welch's method.
