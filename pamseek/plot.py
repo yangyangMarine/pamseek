@@ -219,18 +219,15 @@ def plot_psd_with_percentiles(f, Sxx_dB, percentiles=None, xscale='log', yscale=
             "99%": "navy"
         }
     
-    # Plot main PSD if provided
-    if Pxx_dB is not None:
-        plt.plot(f, Pxx_dB, 'k-', label='Mean PSD', linewidth=2)
+    # Plot main rms_level if provided
+    if rms_level is not None:
+        plt.plot(f, rms_level, label='RMS Level', color='red', linestyle='--', linewidth=2)
     
     # Plot percentiles if provided
     if percentiles is not None:
         for label, values in percentiles.items():
             color = colors.get(label, 'gray')
             plt.plot(f, values, '-', label=f'{label} Percentile', color=color, alpha=0.7)
-          
-    # Plot RMS level as a line
-    plt.plot(f, rms_level, label='RMS Level', color='red', linestyle='--', linewidth=2)
 
     # Set x and y axis scales
     plt.xscale(xscale)
