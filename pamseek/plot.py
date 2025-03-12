@@ -187,31 +187,32 @@ def plot_spectrogram(f, t, Sxx_dB, xscale='linear', yscale='log', width=8, heigh
     plt.show()
     return fig
 
-def plot_psd_with_percentiles(f, Sxx_dB, percentiles=None, xscale='log', yscale='linear', 
-                             width=8, height=4, title='PSD with Percentiles', grid=True, 
-                             xlim=None, ylim=None, save=False, filename='psd_percentiles.png', 
-                             dpi=300, colors=None):
+
+def plot_spectrum_line(x, y, percentiles=None, xscale='log', yscale='linear', 
+                       width=8, height=4, title='Spectrum Line Plot', grid=True, 
+                       xlim=None, ylim=None, save=False, filename='spectrum_line_plot.png', 
+                       dpi=300, colors=None, xlabel=None, ylabel=None):
     """
-    Plots the Power Spectral Density (PSD) along with percentile statistics.
-    
+    Plots a spectrum line plot for either time-domain or frequency-domain data.
+
     Parameters:
     -----------
-    f : numpy.ndarray
-        Frequency array
-    Sxx_dB : numpy.ndarray
-        PSD values in dB re 1 µPa²/Hz
+    x : numpy.ndarray
+        x-axis data (time or frequency)
+    y : numpy.ndarray
+        y-axis data (RMS SPL or RMS PSD)
     percentiles : dict, optional
-        Dictionary of percentile values (e.g., {'50%': values, '95%': values})
+        Dictionary of percentile values (e.g., {'50%': values, '95%': values}) for frequency-domain data
     xscale : str, optional
         Scale for x-axis ('log' or 'linear', default: 'log')
     yscale : str, optional
         Scale for y-axis ('log' or 'linear', default: 'linear')
     width : int, optional
-        Figure width in inches (default: 12)
+        Figure width in inches (default: 8)
     height : int, optional
-        Figure height in inches (default: 6)
+        Figure height in inches (default: 4)
     title : str, optional
-        Plot title (default: 'PSD with Percentiles')
+        Plot title (default: 'Spectrum Line Plot')
     grid : bool, optional
         Whether to show grid (default: True)
     xlim : tuple, optional
@@ -221,23 +222,21 @@ def plot_psd_with_percentiles(f, Sxx_dB, percentiles=None, xscale='log', yscale=
     save : bool, optional
         Whether to save the plot (default: False)
     filename : str, optional
-        Filename for saved plot (default: 'psd_percentiles.png')
+        Filename for saved plot (default: 'spectrum_line_plot.png')
     dpi : int, optional
         Resolution of saved plot in dots per inch (default: 300)
     colors : dict, optional
         Dictionary mapping percentile labels to colors
-        
+    xlabel : str, optional
+        Label for x-axis (default: 'Time [s]' or 'Frequency [Hz]')
+    ylabel : str, optional
+        Label for y-axis (default: 'SPL [dB]' or 'PSD [dB re 1 µPa²/Hz]')
+
     Returns:
     --------
     matplotlib.figure.Figure
         The figure object
     """
-                               
-    # Calculate RMS of the PSD in dB
-    rms_level = 10 * np.log10(np.mean(10**(Sxx_dB/10), axis=1))  # RMS for each frequency bin
-                               
-    fig = plt.figure(figsize=(width, height))
-    
     # Default colors if not provided
     if colors is None:
         colors = {
@@ -247,16 +246,23 @@ def plot_psd_with_percentiles(f, Sxx_dB, percentiles=None, xscale='log', yscale=
             "95%": "darkblue",
             "99%": "navy"
         }
+
+    # Set default labels based on input data
+    if xlabel is None:
+        xlabel = 'Frequency [Hz]' if percentiles is not None else 'Time [s]'
+    if ylabel is None:
+        ylabel = 'Power Spectral Density [dB re 1 µPa²/Hz]' if percentiles is not None else 'SPL [dB]'
+
+    fig = plt.figure(figsize=(width, height))
     
-    # Plot main rms_level if provided
-    if rms_level is not None:
-        plt.plot(f, rms_level, label='RMS Level', color='red', linestyle='--', linewidth=2)
+    # Plot the main line (RMS level)
+    plt.plot(x, y, label='RMS Level', color='red', linestyle='--', linewidth=2)
     
-    # Plot percentiles if provided
+    # Plot percentiles if provided (for frequency-domain data)
     if percentiles is not None:
         for label, values in percentiles.items():
             color = colors.get(label, 'gray')
-            plt.plot(f, values, '-', label=f'{label} Percentile', color=color, alpha=0.7)
+            plt.plot(x, values, '-', label=f'{label} Percentile', color=color, alpha=0.7)
 
     # Set x and y axis scales
     plt.xscale(xscale)
@@ -268,14 +274,16 @@ def plot_psd_with_percentiles(f, Sxx_dB, percentiles=None, xscale='log', yscale=
     if ylim is not None:
         plt.ylim(ylim)
     
+    # Add labels, title, and grid
     plt.title(title)
-    plt.xlabel('Frequency [Hz]')
-    plt.ylabel('Power Spectral Density [dB re 1 µPa²/Hz]')
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
     plt.grid(grid)
     plt.legend(loc='lower left')
 
     plt.tight_layout()
     
+    # Save the plot if requested
     if save:
         plt.savefig(filename, dpi=dpi, bbox_inches='tight')
         print(f"Plot saved as {os.path.abspath(filename)}")
