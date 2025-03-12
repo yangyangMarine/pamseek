@@ -158,7 +158,7 @@ def plot_spectrogram(f, t, Sxx_dB, xscale='linear', yscale='log', width=12, heig
     plt.show()
     return fig
 
-def plot_psd_with_percentiles(f, Pxx_dB, percentiles=None, xscale='log', yscale='linear', 
+def plot_psd_with_percentiles(f, Sxx_dB, percentiles=None, xscale='log', yscale='linear', 
                              width=12, height=6, title='PSD with Percentiles', grid=True, 
                              xlim=None, ylim=None, save=False, filename='psd_percentiles.png', 
                              dpi=300, colors=None):
@@ -169,7 +169,7 @@ def plot_psd_with_percentiles(f, Pxx_dB, percentiles=None, xscale='log', yscale=
     -----------
     f : numpy.ndarray
         Frequency array
-    Pxx_dB : numpy.ndarray
+    Sxx_dB : numpy.ndarray
         PSD values in dB re 1 µPa²/Hz
     percentiles : dict, optional
         Dictionary of percentile values (e.g., {'50%': values, '95%': values})
@@ -203,6 +203,10 @@ def plot_psd_with_percentiles(f, Pxx_dB, percentiles=None, xscale='log', yscale=
     matplotlib.figure.Figure
         The figure object
     """
+                               
+    # Calculate RMS of the PSD in dB
+    rms_level = 10 * np.log10(np.mean(10**(Sxx_dB/10), axis=1))  # RMS for each frequency bin
+                               
     fig = plt.figure(figsize=(width, height))
     
     # Default colors if not provided
@@ -224,7 +228,10 @@ def plot_psd_with_percentiles(f, Pxx_dB, percentiles=None, xscale='log', yscale=
         for label, values in percentiles.items():
             color = colors.get(label, 'gray')
             plt.plot(f, values, '-', label=f'{label} Percentile', color=color, alpha=0.7)
-    
+          
+    # Plot RMS level as a line
+    plt.plot(f, rms_level, label='RMS Level', color='red', linestyle='--', linewidth=2)
+
     # Set x and y axis scales
     plt.xscale(xscale)
     plt.yscale(yscale)
