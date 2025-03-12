@@ -75,12 +75,13 @@ def plot_psd(f, Pxx_dB, xscale='log', yscale='linear', width=12, height=6,
     return fig
 
 def plot_spectrogram(f, t, Sxx_dB, xscale='linear', yscale='log', width=12, height=6,
-                    title='Spectrogram', grid=True, xlim=None, ylim=[1, 12000], 
-                    cmap='viridis', vmin=None, vmax=None, colorbar_label='PSD [dB re 1 µPa²/Hz]',
-                    save=False, filename='spectrogram_plot.png', dpi=300):
+                     title='Spectrogram', grid=True, xlim=None, ylim=None, 
+                     cmap='viridis', vmin=None, vmax=None, colorbar_label='PSD [dB re 1 µPa²/Hz]',
+                     save=False, filename='spectrogram_plot.png', dpi=300,
+                     downsample=False, segment_length=60):
     """
-    Plots a spectrogram from time-frequency analysis.
-    
+    Plots a spectrogram from time-frequency analysis with optional downsampling.
+
     Parameters:
     -----------
     f : numpy.ndarray
@@ -104,7 +105,7 @@ def plot_spectrogram(f, t, Sxx_dB, xscale='linear', yscale='log', width=12, heig
     xlim : tuple, optional
         Limits for x-axis (min, max) (default: None)
     ylim : tuple, optional
-        Limits for y-axis (min, max) (default: [1, 12000])
+        Limits for y-axis (min, max). If None, defaults to [f.min(), f.max()].
     cmap : str, optional
         Colormap for spectrogram (default: 'viridis')
     vmin : float, optional
@@ -119,32 +120,57 @@ def plot_spectrogram(f, t, Sxx_dB, xscale='linear', yscale='log', width=12, heig
         Filename for saved plot (default: 'spectrogram_plot.png')
     dpi : int, optional
         Resolution of saved plot in dots per inch (default: 300)
-        
+    downsample : bool, optional
+        Whether to downsample the data (default: False)
+    segment_length : int, optional
+        Length of each segment in seconds for downsampling (default: 60)
+
     Returns:
     --------
     matplotlib.figure.Figure
         The figure object
     """
+    if downsample:
+        # Calculate the number of time bins per segment
+        dt = t[1] - t[0]
+        bins_per_segment = int(segment_length / dt)
+        
+        # Split the data into segments
+        num_segments = int(np.ceil(Sxx_dB.shape[1] / bins_per_segment))
+        Sxx_dB_downsampled = np.zeros((Sxx_dB.shape[0], num_segments))
+        t_downsampled = np.zeros(num_segments)
+        
+        for i in range(num_segments):
+            start_idx = i * bins_per_segment
+            end_idx = min((i + 1) * bins_per_segment, Sxx_dB.shape[1])
+            Sxx_dB_downsampled[:, i] = np.mean(Sxx_dB[:, start_idx:end_idx], axis=1)
+            t_downsampled[i] = np.mean(t[start_idx:end_idx])
+        
+        # Use the downsampled data for plotting
+        t_plot = t_downsampled
+        Sxx_dB_plot = Sxx_dB_downsampled
+    else:
+        # Use the original data for plotting
+        t_plot = t
+        Sxx_dB_plot = Sxx_dB
+    
+    # Set y-axis limits if not provided
+    if ylim is None:
+        ylim = [f.min(), f.max()]  # Default to full frequency range
+
     fig = plt.figure(figsize=(width, height))
     
     # Plot the spectrogram
-    pcm = plt.pcolormesh(t, f, Sxx_dB, shading='auto', cmap=cmap, vmin=vmin, vmax=vmax)
-
-    plt.title('Spectrogram of Audio Signal')
-    plt.xlabel('Time [s]')
-    plt.ylabel('Frequency [Hz]')
-    plt.grid(True)
-    plt.show()
-
+    pcm = plt.pcolormesh(t_plot, f, Sxx_dB_plot, shading='auto', cmap=cmap, vmin=vmin, vmax=vmax)
+    
     # Set x and y axis scales
     plt.xscale(xscale)
     plt.yscale(yscale)
     
-    # Set axis limits if provided
+    # Set axis limits
     if xlim is not None:
         plt.xlim(xlim)
-    if ylim is not None:
-        plt.ylim(ylim)
+    plt.ylim(ylim)  # Use the provided or default y-axis limits
     
     # Add colorbar
     cbar = plt.colorbar(pcm)
