@@ -151,7 +151,7 @@ def compute_spectral_metrics(audio_data, fs=None, window='hann', window_length=1
     spl = 10 * np.log10(psd / (p_ref**2))
 
     # Compute RMS SPL, over frequencies)
-    spl_rms = 10 * np.log10(np.mean(10**(spl / 10), axis=0))
+    spl_rms_t = 10 * np.log10(np.mean(10**(spl / 10), axis=0))
     
     # Convert spectrogram to dB re 1 µPa²/Hz
     # Avoid log of zero by adding small constant
@@ -160,7 +160,7 @@ def compute_spectral_metrics(audio_data, fs=None, window='hann', window_length=1
     
     # Calculate RMS levels for each frequency bin
     # Work with linear values first, then convert to dB, integrating over time (axis=1), freuqency (axis=0)
-    psd_rms = 10 * np.log10(np.mean(psd, axis=1) / (p_ref**2) + epsilon)
+    psd_rms_f = 10 * np.log10(np.mean(psd, axis=1) / (p_ref**2) + epsilon)
     
     # Calculate percentiles for each frequency bin
     percentiles = {
@@ -171,4 +171,4 @@ def compute_spectral_metrics(audio_data, fs=None, window='hann', window_length=1
         "99%": np.percentile(psd_db, 99, axis=1)
     }
     
-    return f, t, psd_db, psd_rms, percentiles, spl, spl_rms
+    return f, t, psd_db, psd_rms_f, percentiles, spl, spl_rms_t
