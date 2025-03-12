@@ -113,7 +113,10 @@ def compute_spectrogram(audio_data, fs=None, window='hann', window_length=1.0, o
     P_ref = 1e-6  # 1 µPa in Pa
     
     # Compute SPL for each time bin (over frequency, axis=0)
-    SPL = 10 * np.log10(np.sum(Sxx * (f[1] - f[0]), axis=0) / (p_ref**2))
+    spl = 10 * np.log10(np.sum(Sxx * (f[1] - f[0]), axis=0) / (p_ref**2))
+
+    # Compute rmsSPL
+    spl_rms = 10 * np.log10(np.mean(10**(spl / 10)))
     
     # Convert spectrogram to dB re 1 µPa²/Hz
     # Avoid log of zero by adding small constant
@@ -122,7 +125,7 @@ def compute_spectrogram(audio_data, fs=None, window='hann', window_length=1.0, o
     
     # Calculate RMS levels for each frequency bin
     # Work with linear values first, then convert to dB, integrating over time (axis=1), freuqency (axis=0)
-    rms_level = 10 * np.log10(np.mean(Sxx, axis=1) / (P_ref**2) + epsilon)
+    psd_rms = 10 * np.log10(np.mean(Sxx, axis=1) / (P_ref**2) + epsilon)
     
     # Calculate percentiles for each frequency bin
     percentiles = {
@@ -133,4 +136,4 @@ def compute_spectrogram(audio_data, fs=None, window='hann', window_length=1.0, o
         "99%": np.percentile(Sxx_db, 99, axis=1)
     }
     
-    return f, t, Sxx_db, rms_level, percentiles, SPL
+    return f, t, Sxx_db, psd_rms, percentiles, spl, spl_rms
