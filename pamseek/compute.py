@@ -174,125 +174,158 @@ def compute_spectral_metrics(audio_data, fs=None, window='hann', window_length=1
     return f, t, psd_db, rms_psd_f, percentiles, spl, rms_spl_t
 
 
-def compute_toctave(audio_object, center_f=None, low_f=None, high_f=None, 
-                    fs=None, window='hann', window_length=1.0, overlap=0.5, scaling='density'):
+def compute_toctave_by_band(audio_data, low_f=None, high_f=None,
+                           window='hann', window_length=1.0, overlap=0.5, scaling='density'):
     """
-    Compute third-octave band spectrogram and metrics from an audio object.
-    
+    Calculate 1/3 octave band power analysis over time.
+
     Parameters:
     -----------
-    audio_object : object
-        Audio object with sample rate (fs) and data attributes
-    center_frequencies : array-like, optional
-        Specific third-octave band center frequencies to analyze
-        If None, bands will be determined based on low_f and high_f or the full spectrum
-    low_f : float, optional
-        Lower frequency boundary for analysis
-    high_f : float, optional
-        Upper frequency boundary for analysis
-    TBD...
-        
+    audio_data : object
+        Audio data object with attributes:
+        - samples: Pressure data as ndarray
+        - sample_rate: Sampling frequency in Hz
+    low_f : float or None, optional
+        Lower frequency bound in Hz. Default is 20 Hz if None.
+    high_f : float or None, optional
+        Upper frequency bound in Hz. Default is Nyquist frequency if None.
+    window : str, optional
+        Window type ('hann', 'hamming', 'blackman', etc.), default='hann'
+    window_length : float, optional
+        Length of window in seconds, default=1.0
+    overlap : float, optional
+        Overlap fraction between windows (0 to 1), default=0.5
+    scaling : str, optional
+        Scaling type ('density' or 'spectrum'), default='density'
+
     Returns:
     --------
     f : ndarray
-        Center frequencies of third-octave bands
+        Center frequencies of the bands in Hz
     t : ndarray
-        Time points
-    psd_db_band : ndarray
-        Power spectral density in dB for each band and time point
-    rms_psd_band : ndarray
-        Time-averaged RMS of PSD for each frequency band (in dB)
+        Time vector in seconds
+    psd_db : ndarray
+        Power spectral density matrix in dB (time x frequencies)
+    rms_psd_f : ndarray
+        RMS power spectral density in dB for each frequency band
     """
-    # Apply bandpass filter if frequency boundaries are provided
-    if low_f is not None or high_f is not None:
-        filtered_audio = audio_object.bandpass(low_f=low_f, high_f=high_f, order=12) # butterworth filet 
-        audio_data = filtered_audio.samples
-        fs = filtered_audio.fs
-    else:
-        audio_data = audio_object.samples
-        fs = audio_object.fs
+    # Extract data and sample rate from audio_data object
+    samples = audio_data.samples
+    fs = audio_data.sample_rate
 
-    # Handle FFT paras
-    if hasattr(audio_data, 'samples'):
-        samples = audio_data.samples
-        sample_rate = audio_data.sample_rate
+    # Ensure samples is 1D array
+    if len(samples.shape) > 1:
+        if samples.shape[1] > samples.shape[0]:
+            samples = samples.T
+        samples = samples[:, 0]
+
+    # Set default frequency range if not provided
+    if low_f is None:
+        low_f = 20.0  # Default lower bound (20 Hz is typical for audio)
+    if high_f is None:
+        high_f = fs / 2  # Nyquist frequency
+
+    # Generate 1/3 octave band center frequencies and band edges
+    def generate_third_octave_bands(low_f, high_f):
+        """
+        Generate center frequencies and band edges for 1/3 octave bands
+        based on the given low_f and high_f.
+        """
+        fraction = 3  # Fixed for 1/3 octave bands
+        factor = 2 ** (1 / fraction)  # Bandwidth factor
+
+        # Initialize list to store center frequencies
+        center_f = []
+
+        # Start with the lowest frequency
+        f_current = low_f
+
+        # Generate center frequencies until we exceed high_f
+        while f_current <= high_f:
+            center_f.append(f_current)
+            f_current *= factor
+
+        # Convert to numpy array
+        center_f = np.array(center_f)
+
+        # Calculate band edges
+        band_edges = np.zeros((len(center_f), 2))
+        for i, fc in enumerate(center_f):
+            band_edges[i, 0] = fc * (2 ** (-1 / (2 * fraction)))  # Lower edge
+            band_edges[i, 1] = fc * (2 ** (1 / (2 * fraction)))   # Upper edge
+
+        return center_f, band_edges
+
+    # Generate 1/3 octave bands
+    center_f, band_edges = generate_third_octave_bands(low_f, high_f)
+
+    # Calculate window parameters
+    samples_per_window = int(window_length * fs)
+    hop_samples = int(samples_per_window * (1 - overlap))
+
+    # Ensure window length is valid
+    if samples_per_window > len(samples):
+        samples_per_window = len(samples)
+        hop_samples = samples_per_window // 2
+
+    # Create window function
+    if window == 'hann':
+        win = signal.windows.hann(samples_per_window)
+    elif window == 'hamming':
+        win = signal.windows.hamming(samples_per_window)
+    elif window == 'blackman':
+        win = signal.windows.blackman(samples_per_window)
     else:
-        samples = audio_data
-        if fs is None:
-            raise ValueError("Sample rate (fs) must be provided when input is not an Audio object")
-        sample_rate = fs
-        
-    # Calculate FFT parameters
-    nperseg = int(sample_rate * window_length)
-    noverlap = int(nperseg * overlap)
-    
-    # Calculate spectrogram
-    f_spec, t, Sxx = signal.spectrogram(
-        audio_data, 
-        fs,
-        window=window, 
-        nperseg=nperseg, 
-        noverlap=noverlap,
-        scaling=scaling
-    )
-                        
-    # Determine third-octave band center frequencies if not provided
-    if center_f is None:
-        # Get frequency range from spectrogram
-        f_min = f_spec[0]
-        f_max = f_spec[-1]
-        
-        # If low_f and high_f are provided, adjust the range
-        if low_f is not None:
-            f_min = max(f_min, low_f)
-        if high_f is not None:
-            f_max = min(f_max, high_f)
-        
-        # Determine appropriate third-octave bands within this range
-        n_min = int(np.floor(3 * np.log2(f_min / 1000)))
-        n_max = int(np.ceil(3 * np.log2(f_max / 1000)))
-        
-        # Generate band centers
-        band_indices = np.arange(n_min, n_max + 1)
-        center_f = 1000 * 2**(band_indices/3)
-        
-        # Filter out any centers outside our actual frequency range
-        center_f = center_f[(center_f >= f_min) & 
-                                               (center_f <= f_max)]
-    
-    # Initialize arrays for results
+        win = signal.get_window(window, samples_per_window)
+
+    # Calculate number of frames
+    num_frames = 1 + (len(samples) - samples_per_window) // hop_samples
+
+    # Initialize output arrays
     num_bands = len(center_f)
-    psd = np.zeros((num_bands, len(t)))
-    psd_db_band = np.zeros((num_bands, len(t)))
-    rms_psd_band = np.zeros(num_bands)
-    
-    # Process each third-octave band
-    for i, center in enumerate(center_f):
-        # Calculate band edges (lower and upper frequencies)
-        f_lower = center / 2**(1/6)
-        f_upper = center * 2**(1/6)
-        
-        # Find indices of frequencies within the band
-        indices = np.where((f_spec >= f_lower) & (f_spec <= f_upper))[0]
-        
-        if len(indices) > 0:
-            # Calculate PSD for each time step
-            for j in range(len(t)):
-                if len(indices) == 1:
-                    # Only one frequency bin
-                    band_width = f_spec[indices[0]] if indices[0] == 0 else (f_spec[indices[0]+1] - f_spec[indices[0]-1])/2
-                    psd[i, j] = Sxx[indices[0], j] * band_width
-                else:
-                    # Multiple bins - use trapezoidal integration
-                    psd[i, j] = np.trapz(Sxx[indices, j], f_spec[indices])
-            
-            # Convert to dB
-            psd_db_band[i, :] = 10 * np.log10(psd[i, :] + 1e-10)
-            
-            # Calculate RMS values across time (in dB)
-            # First get the time-average of the linear PSD
-            time_avg_psd = np.mean(psd[i, :])
-            # Then convert to dB
-            rms_psd_band[i] = 10 * np.log10(time_avg_psd + 1e-10)
-    
-    return center_f, t, psd_db_band, rms_psd_band
+    psd = np.zeros((num_frames, num_bands))
+    t = np.arange(num_frames) * hop_samples / fs
+
+    # Calculate FFT frequencies
+    fft_freqs = np.fft.rfftfreq(samples_per_window, d=1/fs)
+
+    # Process each frame
+    for i in range(num_frames):
+        start = i * hop_samples
+        end = start + samples_per_window
+
+        if end > len(samples):
+            break
+
+        # Apply window
+        frame = samples[start:end] * win
+
+        # Compute FFT
+        fft_data = np.fft.rfft(frame)
+
+        # Compute power spectrum
+        if scaling == 'density':
+            # Power spectral density (V^2/Hz)
+            power = np.abs(fft_data)**2 / (fs * np.sum(win**2))
+        else:  # 'spectrum'
+            # Power spectrum (V^2)
+            power = np.abs(fft_data)**2 / np.sum(win**2)
+
+        # Calculate power in each frequency band
+        for j, (fc, edges) in enumerate(zip(center_f, band_edges)):
+            # Find frequency indices within this band
+            band_low, band_high = edges
+            indices = (fft_freqs >= band_low) & (fft_freqs <= band_high)
+
+            # Sum power in band
+            if np.any(indices):
+                psd[i, j] = np.sum(power[indices])
+
+    # Convert PSD to dB
+    psd_db = 10 * np.log10(psd + 1e-20)  # Add small epsilon to avoid log10(0)
+
+    # Calculate RMS PSD for each frequency band and convert to dB
+    rms_psd = np.sqrt(np.mean(psd**2, axis=0))
+    rms_psd_f = 10 * np.log10(rms_psd + 1e-20)  # Add small epsilon to avoid log10(0)
+
+    return center_f, t, psd_db, rms_psd_f
