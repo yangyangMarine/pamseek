@@ -205,11 +205,11 @@ def compute_toctave(audio_object, center_f=None, low_f=None, high_f=None,
     """
     # Apply bandpass filter if frequency boundaries are provided
     if low_f is not None or high_f is not None:
-        filtered_audio = audio_object.bandpass(low_f=low_f, high_f=high_f, order=12)
-        audio_data = filtered_audio.data
+        filtered_audio = audio_object.bandpass(low_f=low_f, high_f=high_f, order=12) # butterworth filet 
+        audio_data = filtered_audio.samples
         fs = filtered_audio.fs
     else:
-        audio_data = audio_object.data
+        audio_data = audio_object.samples
         fs = audio_object.fs
 
     # Handle FFT paras
