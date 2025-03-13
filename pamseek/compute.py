@@ -329,3 +329,52 @@ def compute_toctave_by_band(audio_data, low_f=None, high_f=None,
     rms_psd_f = 10 * np.log10(rms_psd + 1e-20)  # Add small epsilon to avoid log10(0)
 
     return center_f, t, psd_db, rms_psd_f
+
+
+def compute_toctave_by_fre(audio_data, center_f, window='hann', window_length=1.0, overlap=0.5, scaling='density'):
+    """
+    This function applies a 1/3-octave bandpass filter based on the center frequency, and then
+    calculates the power spectral density (PSD) and RMS of PSD across time.
+
+    Parameters:
+    - audio_data: The input audio data (must have .samples and .sample_rate).
+    - center_f: The center frequency for the octave band (e.g., 63 Hz).
+    - window: The windowing function to use for the spectrogram (default 'hann').
+    - window_length: The length of the window in seconds (default 1.0).
+    - overlap: The overlap fraction for the spectrogram (default 0.5).
+    - scaling: The scaling method for the spectrogram (default 'density').
+
+    Returns:
+    - f_spec: The frequencies of the spectrogram.
+    - t: The time values of the spectrogram.
+    - PSD: The power spectral density.
+    - psd_rms: The RMS of PSD across time.
+    """
+
+    # Calculate the lower and upper frequency limits for the 1/3-octave band
+    f_low = center_f * 2**(-1/6)
+    f_high = center_f * 2**(1/6)
+
+    # Apply the bandpass filter to the audio data
+    filtered_audio = audio_data.bandpass(low_f=f_low, high_f=f_high, order=12)
+    audio_data = filtered_audio.samples
+    fs = filtered_audio.sample_rate
+
+    # Calculate FFT parameters
+    nperseg = int(fs * window_length)
+    noverlap = int(nperseg * overlap)
+
+    # Calculate the spectrogram (Power Spectral Density)
+    f_spec, t, psd = signal.spectrogram(
+        audio_data, 
+        fs,
+        window=window, 
+        nperseg=nperseg, 
+        noverlap=noverlap,
+        scaling=scaling
+    )
+
+    # Calculate the RMS of PSD across time
+    psd_rms = np.sqrt(np.mean(psd**2, axis=1))
+
+    return f_spec, t, psd, psd_rms
