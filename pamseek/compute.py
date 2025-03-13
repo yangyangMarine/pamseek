@@ -345,7 +345,7 @@ def compute_toctave_by_fre(audio_data, center_f, window='hann', window_length=1.
     - scaling: The scaling method for the spectrogram (default 'density').
 
     Returns:
-    - f_spec: The frequencies of the spectrogram.
+    - f: The frequencies of the spectrogram.
     - t: The time values of the spectrogram.
     - PSD: The power spectral density.
     - psd_rms: The RMS of PSD across time.
@@ -355,7 +355,7 @@ def compute_toctave_by_fre(audio_data, center_f, window='hann', window_length=1.
     f_low = center_f * 2**(-1/6)
     f_high = center_f * 2**(1/6)
 
-    # Apply the bandpass filter to the audio data
+    # Apply the bandpass filter to the audio data, butterworth/
     filtered_audio = audio_data.bandpass(low_f=f_low, high_f=f_high, order=12)
     audio_data = filtered_audio.samples
     fs = filtered_audio.sample_rate
@@ -364,8 +364,8 @@ def compute_toctave_by_fre(audio_data, center_f, window='hann', window_length=1.
     nperseg = int(fs * window_length)
     noverlap = int(nperseg * overlap)
 
-    # Calculate the spectrogram (Power Spectral Density)
-    f_spec, t, psd = signal.spectrogram(
+    # Calculate PSD
+    f, t, psd = signal.spectrogram(
         audio_data, 
         fs,
         window=window, 
@@ -373,8 +373,14 @@ def compute_toctave_by_fre(audio_data, center_f, window='hann', window_length=1.
         noverlap=noverlap,
         scaling=scaling
     )
-
-    # Calculate the RMS of PSD across time
-    psd_rms = np.sqrt(np.mean(psd**2, axis=1))
-
-    return f_spec, t, psd, psd_rms
+    
+    # Avoid log of zero by adding small constant
+    p_ref = 1e-6 
+    
+    epsilon = np.finfo(float).eps
+    psd_db = 10 * np.log10(psd / (p_ref**2) + epsilon)
+    
+    # Work with linear values first, then convert to dB, integrating over time (axis=1), freuqency (axis=0)
+    rms_psd = 10 * np.log10(np.mean(psd, axis=1) / (p_ref**2) + epsilon)
+    
+    return f, t, psd_db, rms_psd
