@@ -34,7 +34,7 @@ PAMSEEK_PATH = r"C:\Users\DrYangYang\Documents\Python\pamseek"
 sys.path.append(PAMSEEK_PATH)
 
 # Import custom processing functions from pamseek
-from pamseek.batch2 import (
+from pamseek.batch import (
     compute_audio_file, compute_rms_psd_and_percentiles, plot_psd,
     compute_bb_spl, segment_bb_spl, plot_bb_spl, boxplot_bb_spl
 )
