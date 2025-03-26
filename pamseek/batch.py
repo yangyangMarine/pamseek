@@ -12,25 +12,51 @@ import scipy.signal as signal
 from datetime import datetime
 import pytz
 
+# this a separated class thawill be used for Partrac specific processing, which only produces PSD and SPLrms for each 1 min segment. 
 
-def compute_single_audio_file(path):
+def compute_audio_file(path, sensitivity, gain, segment_length=60, fs=None, window='hann', 
+                        window_length=1.0, overlap=0.5, scaling='density', 
+                        low_f=None, high_f=None, output_dir=None):
     """
     Reads all .wav files from a directory, processes each file individually,
-    applies calibration, computes spectral metrics, and saves the results as .npy files.
-    Prints progress as a percentage.
+    applies calibration, computes spectral metrics, and saves the results as a single .npy file per input file.
 
     Parameters:
     -----------
     path : str
         Path to the directory containing .wav files
-
-    Returns:
-    --------
-    None
+    sensitivity : float
+        Hydrophone sensitivity
+    gain : float
+        Amplification gain
+    segment_length : float, optional
+        Length of each segment in seconds (default: 60 seconds / 1 minute)
+    fs : float, optional
+        Sampling rate
+    window : str, optional
+        Window function for spectrogram (default: 'hann')
+    window_length : float, optional
+        Length of each window in seconds (default: 1.0)
+    overlap : float, optional
+        Overlap factor between 0 and 1 (default: 0.5)
+    scaling : str, optional
+        Scaling mode for spectrogram (default: 'density')
+    low_f : float, optional
+        Lower frequency bound for bandpass filtering
+    high_f : float, optional
+        Upper frequency bound for bandpass filtering
+    output_dir : str, optional
+        Directory to save processed files (defaults to input path)
     """
     # Set working directory
     original_dir = os.getcwd()
     os.chdir(path)
+    
+    # Set output directory
+    if output_dir is None:
+        output_dir = path
+    os.makedirs(output_dir, exist_ok=True)
+
     print(f"Reading audio files from: {os.getcwd()}")
 
     # List all .wav files
@@ -40,16 +66,26 @@ def compute_single_audio_file(path):
         print(f"- {file}")
 
     if len(wav_files) == 0:
-        os.chdir(original_dir)  # Return to original directory
+        os.chdir(original_dir)
         raise ValueError(f"No .wav files found in {path}")
 
-    # Sort wav files to ensure chronological order (optional, but useful for consistency)
+    # Sort wav files to ensure chronological order
     wav_files.sort()
+
+    # Reference pressure for underwater acoustics
+    p_ref = 1e-6  # 1 µPa in Pa
+    epsilon = np.finfo(float).eps  # Small value to prevent log(0)
+    
+    # Initialize lists to store results from all files
+    all_f = []
+    all_t = []
+    all_psd_db = []
+    all_bb_spl_db = []
 
     # Loop through each file and process it
     total_files = len(wav_files)
     for i, single_file in enumerate(wav_files):
-        # Calculate progress percentage
+        # Calculate and print progress
         progress = ((i + 1) / total_files) * 100
         print(f"\n=============================== {progress:.0f}% finished ===============================")
         print(f"Processing file: {single_file}")
@@ -60,60 +96,100 @@ def compute_single_audio_file(path):
         # Extract timestamp from filename
         timestamp_str = extract_timestamp_from_filename(single_file)
         start_time = pytz.timezone("UTC").localize(timestamp_str)
-        audio_object.metadata['recording_start_time'] = start_time
+        # audio_object.metadata['recording_start_time'] = start_time
 
-        # Step 1: Apply hydrophone calibration
-        audio_object = cal_hydrophone(audio_object, -156, gain=0, bit_depth=24)
+        # Apply hydrophone calibration
+        audio_object = cal_hydrophone(audio_object, sensitivity, gain, bit_depth=24)
 
-        # Step 2: Compute compute_PSD
-        f, t, psd_db = compute_PSD(
-            audio_object,
-            fs=None,
-            window='hann',
-            window_length=1.0,  # 1 sec
-            overlap=0.5,  # 50%
-            scaling='density'
+        # Handle input data with optional bandpass filtering
+        if low_f is not None and high_f is not None:
+            filtered_audio = audio_object.bandpass(low_f=low_f, high_f=high_f, order=4)
+            samples = filtered_audio.samples
+        else:
+            samples = audio_object.samples
+
+        # Use provided or audio object's sample rate
+        sample_rate = audio_object.sample_rate if fs is None else fs
+        
+        # Calculate segment parameters
+        nperseg = int(sample_rate * window_length)
+        noverlap = int(nperseg * overlap)
+
+        # calculate PSD using Welch's method
+        f_welch, psd_welch = signal.welch(
+            samples, 
+            fs=sample_rate,
+            window=window, 
+            nperseg=nperseg,
+            noverlap=noverlap, 
+            scaling=scaling
+        )
+        # Convert PSD from Pa²/Hz to dB re 1 µPa²/Hz
+        psd_db = 10 * np.log10(psd_welch / (p_ref**2))
+        
+      
+        # Calculate spectrogram fpr SPL
+        f, t, psd = signal.spectrogram(
+            samples, 
+            fs=sample_rate,
+            window=window, 
+            nperseg=nperseg,
+            noverlap=noverlap, 
+            scaling=scaling
         )
         
-        # Step 3: Save the results as a .npy file
-        output_filename = os.path.splitext(single_file)[0] + ".npy"  # Replace .wav with .npy
-        np.save(output_filename, {
-            'f': f,
-            't': t,
-            'psd_db': psd_db,
-            'start_time': start_time.isoformat()  # Save start_time as ISO format string
-        })
-        print(f"Spectral metrics saved to: {output_filename}")
+        # # Add absolute start time to time array
+        t += start_time.timestamp()
+
+        # Compute SPL
+        # spl = 10 * np.log10(psd / (p_ref**2) + epsilon)
+
+        # Broadband Level
+        # Compute frequency resolution using actual differences between frequency bins
+        delta_f = np.diff(f) if len(f) > 1 else np.array([f[0]])
         
-        # save to NETcdf or Zarr format
-        # # Transpose psd_db to align dimensions with time and frequency
-        # psd_db = psd_db.T  # Transpose to shape (3599, 48001)
+        # Integrate PSD across all frequency bins, using actual frequency resolution
+        power_per_time = np.sum(psd * delta_f[:, np.newaxis], axis=0)
 
-        # # Step 3: Save the results as a .zarr file using xarray
-        # output_filename = os.path.splitext(single_file)[0] + ".zarr"  # Replace .wav with .zarr
-
-        # # Create an xarray Dataset
-        # ds = xr.Dataset(
-        #     {
-        #         'psd_db': (['time', 'frequency'], psd_db),  # Power spectral density
-        #     },
-        #     coords={
-        #         'time': t,  # Time vector
-        #         'frequency': f,  # Frequency vector
-        #     },
-        #     attrs={
-        #         'start_time': start_time.isoformat(),  # Start time as an attribute
-        #         'file_name': single_file,  # Original file name
-        #         'description': 'Spectral metrics computed from audio file',
-        #     }
-        # )
-
-        # # Save to NetCDF file
-        # ds.to_netcdf(output_filename)
-        # print(f"Spectral metrics saved to: {output_filename}")  
+        # Convert to Broadband SPL in dB
+        bb_spl_db = 10 * np.log10(power_per_time / (p_ref**2) + epsilon)
         
-    # Return to original directory
+        # Store other results
+        # all_f.append(f)
+        all_t.append(t)
+        all_psd_db.append(psd_db)
+        all_bb_spl_db.append(bb_spl_db)
+
+    
+    #     # Segment Broadband SPL into 1-minute segments
+    #     segment_samples = int(segment_length * sample_rate)
+    #     bb_spl_segments = [
+    #         bb_spl[i:i+segment_samples] 
+    #         for i in range(0, len(bb_spl), segment_samples)
+    #     ]
+
+    #     # Compute RMS SPL for each segment
+    #     rms_spl = [
+    #         10 * np.log10(np.mean(10**(segment / 10)) + epsilon)
+    #         for segment in bb_spl_segments
+    #     ]
+
+    #     # Generate output filename
+    #     base_filename = os.path.splitext(single_file)[0]
+        
+        # Create a tuple of all results to save
+        results_tuple = (all_f, all_t, all_psd_db, all_bb_spl_db)
+        
+        # Save results as a single .npy file
+        np.save(os.path.join(output_dir, f'{base_filename}_results.npy'), results_tuple)
+        
+    # Reset working directory
     os.chdir(original_dir)
+
+
+    print("Processing complete")
+    return all_f, all_t, all_psd_db, all_bb_spl_db
+
 
 def extract_timestamp_from_filename(filename):
     """

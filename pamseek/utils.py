@@ -12,67 +12,126 @@ import pytz
 def load_audio_files(path):
     """
     Reads all .wav files from a directory and concatenates them into a single Audio object.
-    Each file's timestamp is extracted from its filename.
-    
+    Each file's timestamp is extracted from its filename and stored as a list.
+        
     Parameters:
     -----------
     path : str
         Path to the directory containing .wav files
-        
+            
     Returns:
     --------
     opensoundscape.Audio
-        Concatenated Audio object with metadata
+        Concatenated Audio object with metadata containing a list of timestamps
     """
     # Set working directory
     original_dir = os.getcwd()
     os.chdir(path)
     print(f"Reading audio files from: {os.getcwd()}")
-    
+        
     # List all .wav files
     wav_files = glob.glob('*.wav')
     print(f"Found {len(wav_files)} .wav files:")
-    for file in wav_files[:5]:  # Show first 5 files
+    for file in wav_files[:]:  # Show first 5 files
         print(f"- {file}")
-        
+            
     if len(wav_files) == 0:
         os.chdir(original_dir)  # Return to original directory
         raise ValueError(f"No .wav files found in {path}")
-    
+        
     # Sort wav files to ensure chronological order
     wav_files.sort()
-    
+        
     # Initialize with the first audio object
     first_file = wav_files[0]
     audio_object = Audio.from_file(first_file)
-    
-    # Extract timestamp from filename for the first file
+        
+    # Extract timestamp from filename for the first file and initialize list
     timestamp_str = extract_timestamp_from_filename(first_file)
     start_time = pytz.timezone("UTC").localize(timestamp_str)
-    audio_object.metadata['recording_start_time'] = start_time
-    
+    audio_object.metadata['recording_start_time'] = [start_time]  # Start with a list containing first timestamp
+        
     # If there are more files, load and concatenate them
     if len(wav_files) > 1:
         total_files = len(wav_files) - 1  # Subtract 1 as already loaded the first file
         for i, file in enumerate(wav_files[1:]):
             temp = Audio.from_file(file)
-            
+                        
             # Extract timestamp from filename for this file
             timestamp_str = extract_timestamp_from_filename(file)
             file_start_time = pytz.timezone("UTC").localize(timestamp_str)
-            temp.metadata['recording_start_time'] = file_start_time
-            
+            # Append this timestamp to the list
+            audio_object.metadata['recording_start_time'].append(file_start_time)
+                        
             # Concatenate with existing audio
             audio_object = opensoundscape.audio.concat([audio_object, temp])
-            
+                        
             # Print progress
             percentage_complete = ((i + 1) / total_files) * 100 
             print(f"Concatenation finished --------------- {round(percentage_complete)}%")
-    
+        
     # Return to original directory
     os.chdir(original_dir)
-    
+        
     return audio_object
+
+def chunk_path(path, chunk_sizes):
+    """
+    Splits .wav files from a directory into sublists based on specified chunk sizes.
+    
+    Parameters:
+    -----------
+    path : str
+        Path to the directory containing .wav files
+    chunk_sizes : list
+        List of integers specifying the size of each chunk
+            
+    Returns:
+    --------
+    list
+        List of sublists, where each sublist contains paths to .wav files
+        
+    Raises:
+    -------
+    ValueError
+        If the sum of chunk_sizes doesn't match the total number of .wav files
+        or if any chunk size is negative
+    """
+    # Validate chunk_sizes
+    if not chunk_sizes or any(size < 0 for size in chunk_sizes):
+        raise ValueError("chunk_sizes must be a non-empty list of non-negative integers")
+    
+    # Get absolute path and list all .wav files
+    abs_path = os.path.abspath(path)
+    wav_files = glob.glob(os.path.join(abs_path, '*.wav'))
+    
+    # Sort files to ensure consistent ordering
+    wav_files.sort()
+    
+    # Check if total files match sum of chunk sizes
+    total_files = len(wav_files)
+    expected_files = sum(chunk_sizes)
+    
+    if total_files == 0:
+        raise ValueError(f"No .wav files found in {path}")
+    
+    if total_files != expected_files:
+        raise ValueError(f"Number of .wav files ({total_files}) doesn't match sum of chunk sizes ({expected_files})")
+    
+    # Chunk the files
+    sub_paths = []
+    start_idx = 0
+    
+    for size in chunk_sizes:
+        end_idx = start_idx + size
+        chunk = wav_files[start_idx:end_idx]
+        sub_paths.append(chunk)
+        start_idx = end_idx
+    
+    # Print total number of files found
+    print(f"Found a total of {total_files} .wav files in {abs_path}")
+    
+    return sub_paths
 
 def extract_timestamp_from_filename(filename):
     """

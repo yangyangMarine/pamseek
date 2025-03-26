@@ -4,8 +4,25 @@ import scipy.signal as signal
 
 
 def compute_spectral_stats(f=None, t=None, rms_psd=None, rms_spl=None):
-    # Function to compute statistics of the given variables and print in a table format
+    """
+    Compute statistics of spectral variables and print them in a table format.
     
+    Parameters:
+    -----------
+    f : ndarray, optional
+        Frequency array
+    t : ndarray, optional
+        Time array
+    rms_psd : ndarray, optional
+        Root mean square of Power Spectral Density
+    rms_spl : ndarray, optional
+        Root mean square of Sound Pressure Level
+    
+    Returns:
+    --------
+    stats_df : pandas.DataFrame
+        DataFrame containing statistics for each variable
+    """
     # List of 1D arrays (check if they are not None)
     arrays = {
         'Frequency (f)': f,
@@ -31,9 +48,11 @@ def compute_spectral_stats(f=None, t=None, rms_psd=None, rms_spl=None):
 
     # Convert stats to a pandas DataFrame for pretty printing
     stats_df = pd.DataFrame(stats)
-
+    
     # Print the stats table
     print(stats_df)
+    
+    return stats_df
 
 
 def compute_psd(audio_data, fs=None, window='hann', window_length=1.0, overlap=0.5, scaling='density'):
@@ -85,13 +104,17 @@ def compute_psd(audio_data, fs=None, window='hann', window_length=1.0, overlap=0
     )
     
     # Convert PSD from Pa²/Hz to dB re 1 µPa²/Hz
-    P_ref = 1e-6  # Reference pressure for underwater (1 µPa in Pascals)
-    psd_db = 10 * np.log10(psd / (P_ref**2))
+    p_ref = 1e-6  # Reference pressure for underwater (1 µPa in Pascals)
+    psd_db = 10 * np.log10(psd / (p_ref**2))
     
-    return f, psd_db
+    # Add date to the returned tuple
+    date=audio_data.metadata['recording_start_time'] 
+
+    return f, psd_db, date
 
 
-def compute_spectral_metrics(audio_data, fs=None, window='hann', window_length=1.0, overlap=0.5, scaling='density'):
+def compute_spectral_metrics(audio_data, fs=None, window='hann', window_length=1.0, 
+                             overlap=0.5, scaling='density', low_f=None, high_f=None):
     """
     Computes the spectral metrics of audio data
     
@@ -109,26 +132,39 @@ def compute_spectral_metrics(audio_data, fs=None, window='hann', window_length=1
         Overlap factor between 0 and 1 (default: 0.5 for 50% overlap)
     scaling : str, optional
         Scaling mode for the spectrogram ('density' or 'spectrum', default: 'density')
+    low_f : float, optional
+        Lower frequency bound for bandpass filtering in Hz
+    high_f : float, optional
+        Upper frequency bound for bandpass filtering in Hz
     
     Returns:
     --------
     tuple
-        (f, t, Sxx_db, rms_level, percentiles, spl, rms_spl)
+        (f, t, Sxx_db, rms_psd_f, percentiles, spl, rms_spl_t, bb_spl)
         - f: frequencies array
         - t: time array
         - Sxx_db: spectrogram in dB re 1 µPa²/Hz
-        - rms_level: RMS levels for each frequency bin in dB
+        - rms_psd_f: RMS levels for each frequency bin in dB
         - percentiles: dictionary of percentile levels (1%, 5%, 50%, 95%, 99%) for each frequency bin
+        - spl: Sound Pressure Level over time and frequency
+        - rms_spl_t: RMS SPL over time
+        - bb_spl: Broadband Sound Pressure Level over time
     """
     # Handle input data
     if hasattr(audio_data, 'samples'):
-        samples = audio_data.samples
         sample_rate = audio_data.sample_rate
+        # Apply bandpass filter if frequency bounds are provided
+        if low_f is not None and high_f is not None:
+            filtered_audio = audio_data.bandpass(low_f=low_f, high_f=high_f, order=4)
+            samples = filtered_audio.samples
+        else:
+            samples = audio_data.samples
     else:
         samples = audio_data
         if fs is None:
             raise ValueError("Sample rate (fs) must be provided when input is not an Audio object")
         sample_rate = fs
+        # Note: Bandpass filtering not applied for numpy arrays as it requires the audio_object interface
     
     # Calculate segment parameters
     nperseg = int(sample_rate * window_length)
@@ -147,31 +183,44 @@ def compute_spectral_metrics(audio_data, fs=None, window='hann', window_length=1
     # Reference pressure for underwater acoustics
     p_ref = 1e-6  # 1 µPa in Pa
     
-    # Compute SPL
-    spl = 10 * np.log10(psd / (p_ref**2))
+    # Small epsilon to avoid log of zero
+    epsilon = np.finfo(float).eps
+    
+    # # Compute SPL
+    # spl = 10 * np.log10(psd / (p_ref**2) + epsilon)
 
-    # Compute RMS SPL, over frequencies)
-    rms_spl_t = 10 * np.log10(np.mean(10**(spl / 10), axis=0))
+    # # Compute RMS SPL over frequencies (for each time bin)
+    # rms_spl_t = 10 * np.log10(np.mean(10**(spl / 10), axis=0))
     
     # Convert spectrogram to dB re 1 µPa²/Hz
-    # Avoid log of zero by adding small constant
-    epsilon = np.finfo(float).eps
     psd_db = 10 * np.log10(psd / (p_ref**2) + epsilon)
     
-    # Calculate RMS levels for each frequency bin
-    # Work with linear values first, then convert to dB, integrating over time (axis=1), freuqency (axis=0)
-    rms_psd_f = 10 * np.log10(np.mean(psd, axis=1) / (p_ref**2) + epsilon)
+    # # Calculate RMS levels for each frequency bin (averaging over time)
+    # rms_psd_f = 10 * np.log10(np.mean(psd, axis=1) / (p_ref**2) + epsilon)
     
-    # Calculate percentiles for each frequency bin
-    percentiles = {
-        "1%": np.percentile(psd_db, 1, axis=1),
-        "5%": np.percentile(psd_db, 5, axis=1),
-        "50%": np.percentile(psd_db, 50, axis=1),
-        "95%": np.percentile(psd_db, 95, axis=1),
-        "99%": np.percentile(psd_db, 99, axis=1)
-    }
+    # # Calculate percentiles for each frequency bin
+    # percentiles = {
+    #     "1%": np.percentile(psd_db, 1, axis=1),
+    #     "5%": np.percentile(psd_db, 5, axis=1),
+    #     "50%": np.percentile(psd_db, 50, axis=1),
+    #     "95%": np.percentile(psd_db, 95, axis=1),
+    #     "99%": np.percentile(psd_db, 99, axis=1)
+    # }
     
-    return f, t, psd_db, rms_psd_f, percentiles, spl, rms_spl_t
+    # Broadband Level
+    # Frequency resolution
+    delta_f = np.diff(f)[0] if len(f) > 1 else f[0]  # Assuming uniform frequency spacing
+    
+    # Integrate PSD across all frequency bins
+    power_per_time = np.sum(psd * delta_f, axis=0)  # Sum over frequency axis
+
+    # Convert to SPL in dB
+    bb_spl = 10 * np.log10(power_per_time / (p_ref**2) + epsilon)
+    
+    # Add date to the returned tuple
+    date=audio_data.metadata['recording_start_time'] 
+
+    return f, t, psd_db, bb_spl, date
 
 
 def compute_toctave_by_band(audio_data, low_f=None, high_f=None,
@@ -200,7 +249,7 @@ def compute_toctave_by_band(audio_data, low_f=None, high_f=None,
 
     Returns:
     --------
-    f : ndarray
+    center_f : ndarray
         Center frequencies of the bands in Hz
     t : ndarray
         Time vector in seconds
@@ -321,52 +370,78 @@ def compute_toctave_by_band(audio_data, low_f=None, high_f=None,
             if np.any(indices):
                 psd[i, j] = np.sum(power[indices])
 
+    # Reference pressure for underwater acoustics
+    p_ref = 1e-6  # 1 µPa in Pa
+    
     # Convert PSD to dB
-    psd_db = 10 * np.log10(psd + 1e-20)  # Add small epsilon to avoid log10(0)
+    epsilon = np.finfo(float).eps  # Small constant to avoid log10(0)
+    psd_db = 10 * np.log10(psd / (p_ref**2) + epsilon)
 
     # Calculate RMS PSD for each frequency band and convert to dB
     rms_psd = np.sqrt(np.mean(psd**2, axis=0))
-    rms_psd_f = 10 * np.log10(rms_psd + 1e-20)  # Add small epsilon to avoid log10(0)
+    rms_psd_f = 10 * np.log10(rms_psd / (p_ref**2) + epsilon)
 
-    return center_f, t, psd_db, rms_psd_f
+    # Add date to the returned tuple
+    date=audio_data.metadata['recording_start_time'] 
+
+    return center_f, t, psd_db, rms_psd_f, date
 
 
-def compute_toctave_by_fre(audio_data, center_f, window='hann', window_length=1.0, overlap=0.5, scaling='density'):
+def compute_toctave_by_nominal_freq(audio_data, center_f, window='hann', window_length=1.0, overlap=0.5, scaling='density'):
     """
-    This function applies a 1/3-octave bandpass filter based on the center frequency, and then
-    calculates the power spectral density (PSD) and RMS of PSD across time.
+    Apply a 1/3-octave bandpass filter based on the center frequency, then calculate
+    the power spectral density (PSD) and related metrics.
 
     Parameters:
-    - audio_data: The input audio data (must have .samples and .sample_rate).
-    - center_f: The center frequency for the octave band (e.g., 63 Hz).
-    - window: The windowing function to use for the spectrogram (default 'hann').
-    - window_length: The length of the window in seconds (default 1.0).
-    - overlap: The overlap fraction for the spectrogram (default 0.5).
-    - scaling: The scaling method for the spectrogram (default 'density').
+    -----------
+    audio_data : object
+        Audio data object with attributes:
+        - samples: Audio samples as ndarray
+        - sample_rate: Sampling frequency in Hz
+    center_f : float
+        The center frequency for the octave band (e.g., 63 Hz)
+    window : str, optional
+        Window type ('hann', 'hamming', etc.), default='hann'
+    window_length : float, optional
+        Length of window in seconds, default=1.0
+    overlap : float, optional
+        Overlap fraction between windows (0 to 1), default=0.5
+    scaling : str, optional
+        Scaling type ('density' or 'spectrum'), default='density'
 
     Returns:
-    - f: The frequencies of the spectrogram.
-    - t: The time values of the spectrogram.
-    - PSD: The power spectral density.
-    - psd_rms: The RMS of PSD across time.
+    --------
+    f : ndarray
+        Frequencies of the spectrogram
+    t : ndarray
+        Time values of the spectrogram
+    psd_db : ndarray
+        Power spectral density in dB re 1 µPa²/Hz
+    rms_psd_f : ndarray
+        RMS of PSD across time for each frequency
+    spl : ndarray
+        Sound Pressure Level over time and frequency
+    rms_spl_t : ndarray
+        RMS SPL over time
+    bb_spl : ndarray
+        Broadband Sound Pressure Level over time
     """
-
     # Calculate the lower and upper frequency limits for the 1/3-octave band
     f_low = center_f * 2**(-1/6)
     f_high = center_f * 2**(1/6)
 
-    # Apply the bandpass filter to the audio data, butterworth/
-    filtered_audio = audio_data.bandpass(low_f=f_low, high_f=f_high, order=12)
-    audio_data = filtered_audio.samples
+    # Apply the bandpass filter to the audio data
+    filtered_audio = audio_data.bandpass(low_f=f_low, high_f=f_high, order=4)
+    samples = filtered_audio.samples
     fs = filtered_audio.sample_rate
 
     # Calculate FFT parameters
     nperseg = int(fs * window_length)
     noverlap = int(nperseg * overlap)
 
-    # Calculate PSD
+    # Calculate spectrogram
     f, t, psd = signal.spectrogram(
-        audio_data, 
+        samples, 
         fs,
         window=window, 
         nperseg=nperseg, 
@@ -374,13 +449,35 @@ def compute_toctave_by_fre(audio_data, center_f, window='hann', window_length=1.
         scaling=scaling
     )
     
-    # Avoid log of zero by adding small constant
-    p_ref = 1e-6 
+    # Reference pressure for underwater acoustics
+    p_ref = 1e-6  # 1 µPa in Pa
     
+    # Small constant to avoid log10(0)
     epsilon = np.finfo(float).eps
+    
+    # Compute SPL
+    spl = 10 * np.log10(psd / (p_ref**2) + epsilon)
+
+    # Compute RMS SPL over frequencies (for each time bin)
+    rms_spl_t = 10 * np.log10(np.mean(10**(spl / 10), axis=0))
+    
+    # Convert spectrogram to dB re 1 µPa²/Hz
     psd_db = 10 * np.log10(psd / (p_ref**2) + epsilon)
     
-    # Work with linear values first, then convert to dB, integrating over time (axis=1), freuqency (axis=0)
-    rms_psd = 10 * np.log10(np.mean(psd, axis=1) / (p_ref**2) + epsilon)
+    # Calculate RMS levels for each frequency bin (averaging over time)
+    rms_psd_f = 10 * np.log10(np.mean(psd, axis=1) / (p_ref**2) + epsilon)
     
-    return f, t, psd_db, rms_psd
+    # Broadband Level
+    # Frequency resolution
+    delta_f = np.diff(f)[0] if len(f) > 1 else f[0]  # Assuming uniform frequency spacing
+
+    # Integrate PSD across all frequency bins
+    power_per_time = np.sum(psd * delta_f, axis=0)  # Sum over frequency axis
+
+    # Convert to SPL in dB
+    bb_spl = 10 * np.log10(power_per_time / (p_ref**2) + epsilon)
+    
+    # Add date to the returned tuple
+    date=audio_data.metadata['recording_start_time'] 
+
+    return f, t, psd_db, rms_psd_f, spl, rms_spl_t, bb_spl, date
