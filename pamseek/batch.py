@@ -5,10 +5,11 @@ import xarray as xr
 import pandas as pd
 import warnings
 import scipy.signal as signal
-from datetime import datetime
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pytz
+from datetime import datetime, timedelta
+import shutil
 
 from opensoundscape import Audio
 
@@ -62,7 +63,7 @@ def calibrate_hydrophone_signal(audio_data, sensitivity_db, gain=0, bit_depth=16
     gain : float, optional
         Additional gain applied to the signal in dB (default: 0 dB)
     bit_depth : int, optional
-        Bit depth of the audio signal (default: 24)
+        Bit depth of the audio signal (default: 16)
         
     Returns:
     --------
@@ -143,7 +144,7 @@ def process_audio_files(path, sensitivity, gain, fs=None,
     # Suppress numpy runtime warnings
     warnings.filterwarnings("ignore", category=RuntimeWarning)
     
-    # Store original working directory and change to input path
+    # # Store original working directory and change to input path
     original_dir = os.getcwd()
     os.chdir(path)
     
@@ -156,6 +157,8 @@ def process_audio_files(path, sensitivity, gain, fs=None,
     if not wav_files:
         os.chdir(original_dir)
         raise ValueError(f"No .wav files found in {path}")
+
+    wav_files = sorted(glob.glob('*.wav'))
 
     # Reference pressure and epsilon for calculations
     P_REF = 1e-6  # reference pressure
@@ -219,8 +222,8 @@ def process_audio_files(path, sensitivity, gain, fs=None,
         combined_bb_spl_db.append(bb_spl_db)
      
         # Save individual file result as NetCDF
-        filename = os.path.splitext(single_file)[0] + '_processed.nc'
-        output_path = os.path.join(output_dir, filename)
+        # filename = os.path.splitext(single_file)[0] + '_processed.nc'
+        # output_path = os.path.join(output_dir, filename)
         
         ds = xr.Dataset(
             {
@@ -241,10 +244,16 @@ def process_audio_files(path, sensitivity, gain, fs=None,
                 'high_f': high_f if high_f is not None else 'None'
             }
         )
-        ds.to_netcdf(output_path)
+        # ds.to_netcdf(output_path)
+
+    # Save individual file result as NetCDF
+    # filename = 'All_files_processed.nc'
+    # output_path = os.path.join(output_dir, filename)
+        
+    output_path = os.path.join(path, output_dir)
 
     # Print completion message
-    print(f"\n\nProcessing complete! {len(wav_files)} files processed.\n")
+    # print(f"\n\nProcessing complete! {len(wav_files)} files processed.\n")
 
     # Create combined xarray Dataset
     combined_ds = xr.Dataset(
@@ -268,11 +277,96 @@ def process_audio_files(path, sensitivity, gain, fs=None,
             'high_f': high_f if high_f is not None else 'None'
         }
     )
+    
+    combined_ds.to_netcdf(output_path)
+    # Print completion message
+    print(f"\n\nProcessing complete! {len(wav_files)} files processed.\n")
 
     os.chdir(original_dir)
     
     return combined_ds
 
+def chunk_path(DATA_PATH, OUTPUT_PATH=None, time_segment="1D"):
+    """
+    Group files based on a specified time window.
+    
+    Parameters:
+    -----------
+    DATA_PATH : str
+        Input directory path containing files to be grouped
+    OUTPUT_PATH : str, optional
+        Output directory path. If None, uses DATA_PATH
+    time_segment : str, optional
+        Time window for grouping
+    
+    Returns:
+    --------
+    dict
+        A dictionary with time-based groups and their full file paths
+    """
+    # Use DATA_PATH as OUTPUT_PATH if not specified
+    if OUTPUT_PATH is None:
+        OUTPUT_PATH = DATA_PATH
+    
+    # Validate input path
+    if not os.path.exists(DATA_PATH):
+        raise ValueError(f"The specified input path does not exist: {DATA_PATH}")
+    
+    # Ensure output path exists
+    os.makedirs(OUTPUT_PATH, exist_ok=True)
+    
+    # Get all files in the directory
+    all_files = [f for f in os.listdir(DATA_PATH) if os.path.isfile(os.path.join(DATA_PATH, f))]
+    
+    # Extract timestamps for all files
+    file_timestamps = {}
+    for filename in all_files:
+        try:
+            timestamp_str = extract_timestamp_from_filename(filename)
+            start_time = pytz.timezone("UTC").localize(timestamp_str)
+            file_timestamps[filename] = start_time
+        except Exception as e:
+            print(f"Skipping file {filename} due to timestamp extraction error: {e}")
+    
+    # Determine time group function
+    def get_time_group(dt):
+        if time_segment == '1D':
+            return dt.strftime('%Y-%m-%d')
+        elif time_segment == '1H':
+            return dt.strftime('%Y-%m-%d_%H')
+        elif time_segment == '10M':
+            # Round down to nearest 10-minute interval
+            rounded_minute = (dt.minute // 10) * 10
+            return dt.replace(minute=rounded_minute, second=0, microsecond=0).strftime('%Y-%m-%d_%H-%M')
+        elif time_segment == '1M':
+            return dt.strftime('%Y-%m')
+        elif time_segment == '1W':
+            # Get the start of the week (Monday)
+            return (dt - timedelta(days=dt.weekday())).strftime('%Y-%m-%d')
+        else:
+            raise ValueError(f"Unsupported time segment: {time_segment}")
+    
+    # Group files by time window
+    grouped_files = {}
+    for filename, timestamp in file_timestamps.items():
+        time_group = get_time_group(timestamp)
+        
+        # Create full input and output paths
+        input_file_path = os.path.join(DATA_PATH, filename)
+        output_file_path = os.path.join(OUTPUT_PATH, filename)
+        
+        if time_group not in grouped_files:
+            grouped_files[time_group] = []
+        
+        grouped_files[time_group].append(output_file_path)
+    
+    # Print only the group counts
+    print(f"\nFile Grouping by {time_segment} segments:")
+    print("-" * 50)
+    for time_group, files in sorted(grouped_files.items()):
+        print(f"Time Group: {time_group}, Total files: {len(files)}")
+    
+    return grouped_files
 
 def compute_rms_psd_and_percentiles(ds):
     """
@@ -314,54 +408,6 @@ def compute_rms_psd_and_percentiles(ds):
     }
     
     return f, rms_psd_db, percentiles_db
-
-def plot_psd(x, y, percentiles=None, xscale='log', yscale='linear', 
-                       width=8, height=4, title='PSD', 
-                       grid=True, xlim=None, ylim=None, save=False, filename='spectrum_line_plot.png', 
-                       dpi=300, colors=None, xlabel=None, ylabel=None):
-    """
-    """
-    default_colors = {
-        "1%": "lightblue",
-        "5%": "skyblue",
-        "50%": "blue",
-        "95%": "darkblue",
-        "99%": "navy"
-    }
-    colors = colors if colors is not None else default_colors
-    
-    xlabel = xlabel if xlabel is not None else ('Frequency (Hz)' if percentiles else 'Time (s)')
-    ylabel = ylabel if ylabel is not None else ('PSD (dB re 1 µPa²/Hz)' if percentiles else 'Broadband SPL (dB re 1 µPa)')
-    
-    fig = plt.figure(figsize=(width, height))
-    plt.plot(x, y, label='RMS Level', color='red', linestyle='--', linewidth=2)
-    
-    if percentiles:
-        for label, values in percentiles.items():
-            color = colors.get(label, 'gray')
-            plt.plot(x, values, '-', label=f'{label} Percentile', color=color, alpha=0.7)
-    
-    plt.xscale(xscale)
-    plt.yscale(yscale)
-    if xlim is not None:
-        plt.xlim(xlim)
-    if ylim is not None:
-        plt.ylim(ylim)
-    
-    plt.title(title)
-    plt.xlabel(xlabel)
-    plt.ylabel(ylabel)
-    plt.grid(grid)
-    plt.legend(loc='best')
-    plt.tight_layout()
-    
-    if save:
-        full_path = os.path.abspath(filename)
-        plt.savefig(full_path, dpi=dpi, bbox_inches='tight')
-        print(f"Plot saved as {full_path}")
-    
-    plt.show()
-    return None
 
 
 def compute_bb_spl(ds):
@@ -439,11 +485,59 @@ def segment_bb_spl(ds, segment_duration='30min'):
         percentiles              # Percentiles [n_segments × 5]
     )
 
+def plot_psd(x, y, percentiles=None, xscale='log', yscale='linear', 
+                       width=8, height=4, title='PSD', 
+                       grid=True, xlim=None, ylim=None, save=False, filename='spectrum_line_plot.png', 
+                       dpi=300, colors=None, xlabel=None, ylabel=None):
+    """
+    """
+    default_colors = {
+        "1%": "lightblue",
+        "5%": "skyblue",
+        "50%": "blue",
+        "95%": "darkblue",
+        "99%": "navy"
+    }
+    colors = colors if colors is not None else default_colors
+    
+    xlabel = xlabel if xlabel is not None else ('Frequency (Hz)' if percentiles else 'Time (s)')
+    ylabel = ylabel if ylabel is not None else ('PSD (dB re 1 µPa²/Hz)' if percentiles else 'Broadband SPL (dB re 1 µPa)')
+    
+    fig = plt.figure(figsize=(width, height))
+    plt.plot(x, y, label='RMS Level', color='red', linestyle='--', linewidth=2)
+    
+    if percentiles:
+        for label, values in percentiles.items():
+            color = colors.get(label, 'gray')
+            plt.plot(x, values, '-', label=f'{label} Percentile', color=color, alpha=0.7)
+    
+    plt.xscale(xscale)
+    plt.yscale(yscale)
+    if xlim is not None:
+        plt.xlim(xlim)
+    if ylim is not None:
+        plt.ylim(ylim)
+    
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.grid(grid)
+    plt.legend(loc='best')
+    plt.tight_layout()
+    
+    if save:
+        full_path = os.path.abspath(filename)
+        plt.savefig(full_path, dpi=dpi, bbox_inches='tight')
+        print(f"Plot saved as {full_path}")
+    
+    plt.show()
+    return None
+
 def plot_bb_spl(times, rms_spl, percentiles=None, 
                 width=8, height=4, 
                 title='Broadband SPL Segmentation', 
                 grid=True, ylim=None, 
-                save=False, 
+                save=False, xlabel=None, ylabel=None
                 filename='broadband_spl_plot.png', 
                 dpi=300):
     """
@@ -512,9 +606,9 @@ def plot_bb_spl(times, rms_spl, percentiles=None,
     
     # Add labels and title
     ax.set_title(title)
-    ax.set_xlabel('Time')
-    ax.set_ylabel('Broadband SPL (dB re 1 µPa)')
-    
+    ax.set_xlabel(xlabel)
+    ax.set_xlabel(ylabel)
+
     # Set y-axis limits if specified
     if ylim is not None:
         ax.set_ylim(ylim)
@@ -604,25 +698,13 @@ def boxplot_bb_spl(ds, segment_duration='30min', width=8, height=4,
     plt.show()
     return None
 
-def compute_toctave_band(audio_data, center_f):
+def compute_toctave_band(center_f):
     """
     Apply a 1/3-octave bandpass filter based on the center frequency
-
-    Parameters:
-    -----------
-    audio_data : object
-    center_f : float
-        The center frequency for the octave band (e.g., 63 Hz)
-
-    Returns:
-    --------
-    
     """
     # Calculate the lower and upper frequency limits for the 1/3-octave band
     f_low = center_f * 2**(-1/6)
     f_high = center_f * 2**(1/6)
-
-    # Apply the Butterworth bandpass filter to the audio data
-    audio_data = audio_data.bandpass(low_f=f_low, high_f=f_high, order=4)
  
-    return audio_data
+    return f_low, f_high
+

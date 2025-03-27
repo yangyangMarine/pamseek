@@ -16,7 +16,6 @@ Outputs:
 - Line plot of broadband SPL trends
 
 """
-
 # Import necessary libraries
 import os
 import sys
@@ -25,6 +24,9 @@ import warnings
 import numpy as np
 import scipy.signal as signal
 import matplotlib.pyplot as plt
+
+# Enable memory profiling
+# %load_ext memory_profiler
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
@@ -35,15 +37,17 @@ sys.path.append(PAMSEEK_PATH)
 
 # Import custom processing functions from pamseek
 from pamseek.batch import (
-    compute_audio_file, compute_rms_psd_and_percentiles, plot_psd,
-    compute_bb_spl, segment_bb_spl, plot_bb_spl, boxplot_bb_spl
+    process_audio_files, compute_rms_psd_and_percentiles, plot_psd,
+    compute_bb_spl, segment_bb_spl, plot_bb_spl, boxplot_bb_spl, chunk_path, compute_toctave_band
 )
 
-# Set data path (Ensure this path exists)
-DATA_PATH = r"C:\Users\DrYangYang\Documents\Python\JupyterNotebook\data\example_TCE_LS1X_Site1A_Feb25\2024-09"
+#####################################
+# September data at Site 1A
+# Data path, this shoud be processed by month
+DATA_PATH = r"D:\TCE_LS1X_Site1A_Feb25\2024-09"
 
 # Process audio files to compute PSD and broadband SPL
-ds = compute_audio_file(
+ds = process_audio_files(
     path=DATA_PATH,
     sensitivity=-170.4,
     gain=2.05,
@@ -54,7 +58,7 @@ ds = compute_audio_file(
     scaling='density',
     low_f=None,
     high_f=None,
-    output_dir=DATA_PATH
+    output_dir="September_Full band broadband SPL.nc"
 )
 
 # Compute Power Spectral Density (PSD)
@@ -63,10 +67,13 @@ f, rms_psd_db, percentiles = compute_rms_psd_and_percentiles(ds)
 # Compute broadband sound pressure level (SPL)
 bb = compute_bb_spl(ds)
 
-# Segment broadband SPL over 10-minute intervals
-bb_t, bb_rms_spl, bb_percentiles = segment_bb_spl(bb, segment_duration='10min')
+# Segment broadband SPL over time intervals, PER DAY
+bb_t, bb_rms_spl, bb_percentiles = segment_bb_spl(bb, segment_duration='1D')
 
-# Define output filenames
+###################################################
+# Set output dir to save plots 
+os.chdir(r'D:\TCE_LS1X_Site1A_Feb25\Output figures\')
+
 site_name = "September_Site1A"
 psd_plot_filename = f"{site_name}_PSD.png"
 spl_boxplot_filename = f"{site_name}_SPL_boxplot.png"
@@ -89,8 +96,7 @@ boxplot_bb_spl(
     grid=True, xlim=None, ylim=None,
     save=True, filename=spl_boxplot_filename,
     dpi=300, xlabel=None, ylabel=None,
-    showfliers=True, color='grey', box_width=0.6
-)
+    showfliers=True, color='grey')
 
 # Plot broadband SPL over time
 plot_bb_spl(
@@ -101,4 +107,105 @@ plot_bb_spl(
     dpi=300
 )
 
-print("Processing complete. Plots saved.")
+###############################
+# get the 1/3 octave band data and redo the process
+# 1/3 octave band, 63 Hz
+# Process audio files to compute PSD and broadband SPL
+low_f, high_f = compute_toctave_band(63)
+ds_toctave_63Hz = process_audio_files(
+    path=DATA_PATH,
+    sensitivity=-170.4,
+    gain=2.05,
+    fs=None,
+    window='hann',
+    window_length=1.0,
+    overlap=0.5,
+    scaling='density',
+    low_f=low_f,
+    high_f=high_f,
+    output_dir="Toctave band 63Hz broadband SPL.nc"
+)
+
+# Compute broadband sound pressure level (SPL)
+bb = compute_bb_spl(ds_toctave_63Hz)
+
+# Segment broadband SPL over time intervals, PER DAY
+bb_t, bb_rms_spl, bb_percentiles = segment_bb_spl(bb, segment_duration='12H')
+
+###################################################
+# Set output dir to save plots 
+os.chdir(r'D:\TCE_LS1X_Site1A_Feb25\Output figures\')
+
+site_name = "September_Site1A"
+spl_boxplot_filename = f"{site_name}_63Hz_1/3 octave band_SPL_boxplot.png"
+spl_lineplot_filename = f"{site_name}_63Hz_1/3 octave band_SPL_lineplot.png"
+
+# Create boxplot for broadband SPL
+boxplot_bb_spl(
+    bb, segment_duration='1M',
+    width=8, height=4, title=site_name,
+    grid=True, xlim=None, ylim=None,
+    save=True, filename=spl_boxplot_filename,
+    dpi=300, xlabel=None, ylabel="63 Hz 1/3 octave band SPL (dB re 1 uPa)",
+    showfliers=False, color='grey')
+
+# Plot broadband SPL over time
+plot_bb_spl(
+    bb_t, bb_rms_spl, bb_percentiles,
+    width=8, height=4, title=site_name,
+    grid=True, ylim=None, xlabel=None, ylabel="63 Hz 1/3 octave band SPL (dB re 1 uPa)",
+    save=True, filename=spl_lineplot_filename,
+    dpi=300)
+
+#####################################
+# 125Hz 1/3 band 
+###############################
+# get the 1/3 octave band data and redo the process
+# 1/3 octave band, 125 Hz
+# Process audio files to compute PSD and broadband SPL
+low_f, high_f = compute_toctave_band(125)
+ds_toctave_125Hz = process_audio_files(
+    path=DATA_PATH,
+    sensitivity=-170.4,
+    gain=2.05,
+    fs=None,
+    window='hann',
+    window_length=1.0,
+    overlap=0.5,
+    scaling='density',
+    low_f=low_f,
+    high_f=high_f,
+    output_dir="Toctave band 125Hz broadband SPL.nc"
+)
+
+# Compute broadband sound pressure level (SPL)
+bb = compute_bb_spl(ds_toctave_125Hz)
+
+# Segment broadband SPL over time intervals, PER DAY
+bb_t, bb_rms_spl, bb_percentiles = segment_bb_spl(bb, segment_duration='12H')
+
+###################################################
+# Set output dir to save plots 
+os.chdir(r'D:\TCE_LS1X_Site1A_Feb25\Output figures\')
+
+site_name = "September_Site1A"
+spl_boxplot_filename = f"{site_name}_125Hz_1/3 octave band_SPL_boxplot.png"
+spl_lineplot_filename = f"{site_name}_125Hz_1/3 octave band_SPL_lineplot.png"
+
+# Create boxplot for broadband SPL
+boxplot_bb_spl(
+    bb, segment_duration='1M',
+    width=8, height=4, title=site_name,
+    grid=True, xlim=None, ylim=None,
+    save=True, filename=spl_boxplot_filename,
+    dpi=300, xlabel=None, ylabel="125 Hz 1/3 octave band SPL (dB re 1 uPa)",
+    showfliers=False, color='grey')
+
+# Plot broadband SPL over time
+plot_bb_spl(
+    bb_t, bb_rms_spl, bb_percentiles,
+    width=8, height=4, title=site_name,
+    grid=True, ylim=None, xlabel=None, ylabel="125 Hz 1/3 octave band SPL (dB re 1 uPa)",
+    save=True, filename=spl_lineplot_filename,
+        dpi=300
+    )
