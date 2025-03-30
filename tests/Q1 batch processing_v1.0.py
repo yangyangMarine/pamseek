@@ -31,11 +31,11 @@ import matplotlib.pyplot as plt
 # Suppress warnings
 warnings.filterwarnings("ignore")
 
-# Set path for the pamseek repository
+# Set path to read in all the functions 
 PAMSEEK_PATH = r"C:\Users\DrYangYang\Documents\Python\pamseek"
 sys.path.append(PAMSEEK_PATH)
 
-# Import custom processing functions from pamseek
+# Import custom processing functions
 from pamseek.batch import (
     process_audio_files, compute_rms_psd_and_percentiles, plot_psd,
     compute_bb_spl, segment_bb_spl, plot_bb_spl, boxplot_bb_spl, chunk_path, compute_toctave_band
@@ -44,10 +44,10 @@ from pamseek.batch import (
 #####################################
 # September data at Site 1A
 # Data path, this shoud be processed by month
-DATA_PATH = r"D:\TCE_LS1X_Site1A_Feb25\2024-09"
+DATA_PATH = r"D:\TCE_LS1X_Site1A_Feb25\Processed PSD and SPL"
 
 # Process audio files to compute PSD and broadband SPL
-ds = process_audio_files(
+ds_full = process_audio_files(
     path=DATA_PATH,
     sensitivity=-170.4,
     gain=2.05,
@@ -58,8 +58,56 @@ ds = process_audio_files(
     scaling='density',
     low_f=None,
     high_f=None,
-    output_dir="September_Full band broadband SPL.nc"
+    output_dir="September_Full band broadband PSD.nc"
 )
+
+# Process audio files to compute PSD and broadband SPL
+low_f, high_f = compute_toctave_band(63)
+ds_toctave_63Hz = process_audio_files(
+    path=DATA_PATH,
+    sensitivity=-170.4,
+    gain=2.05,
+    fs=None,
+    window='hann',
+    window_length=1.0,
+    overlap=0.5,
+    scaling='density',
+    low_f=low_f,
+    high_f=high_f,
+    output_dir="September_1/3 octave band 63Hz broadband PSD.nc"
+)
+
+# Process audio files to compute PSD and broadband SPL
+low_f, high_f = compute_toctave_band(125)
+ds_toctave_125Hz = process_audio_files(
+    path=DATA_PATH,
+    sensitivity=-170.4,
+    gain=2.05,
+    fs=None,
+    window='hann',
+    window_length=1.0,
+    overlap=0.5,
+    scaling='density',
+    low_f=low_f,
+    high_f=high_f,
+    output_dir="September_1/3 octave band 125Hz broadband PSD.nc"
+)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # Compute Power Spectral Density (PSD)
 f, rms_psd_db, percentiles = compute_rms_psd_and_percentiles(ds)

@@ -107,131 +107,132 @@ def calibrate_hydrophone_signal(audio_data, sensitivity_db, gain=0, bit_depth=16
 def process_audio_files(path, sensitivity, gain, fs=None, 
                          window='hann', window_length=1.0, overlap=0.5, 
                          scaling='density', low_f=None, high_f=None, 
-                         output_dir=None):
+                         output_dir=None, output_filename=None):
     """
     Process multiple WAV files in a directory to compute Power Spectral Density (PSD).
-    
-    Parameters:
-    -----------
-    path : str
-        Directory containing WAV files
-    sensitivity : float
-        Hydrophone sensitivity in dB re 1V/µPa
-    gain : float
-        Additional gain applied to the signal
-    fs : float, optional
-        Sampling frequency (if None, uses audio file's native sample rate)
-    window : str, optional
-        Window function for PSD computation (default: 'hann')
-    window_length : float, optional
-        Length of window in seconds (default: 1.0)
-    overlap : float, optional
-        Overlap between windows (default: 0.5)
-    scaling : str, optional
-        PSD scaling method (default: 'density')
-    low_f : float, optional
-        Low-frequency bandpass filter limit
-    high_f : float, optional
-        High-frequency bandpass filter limit
-    output_dir : str, optional
-        Directory to save output files (default: input path)
-    
-    Returns:
-    --------
-    xarray.Dataset
-        Combined dataset with PSD and broadband SPL information
     """
     # Suppress numpy runtime warnings
     warnings.filterwarnings("ignore", category=RuntimeWarning)
     
-    # # Store original working directory and change to input path
+    # Store original working directory
     original_dir = os.getcwd()
-    os.chdir(path)
     
-    # Set output directory
-    output_dir = output_dir or path
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Find WAV files
-    wav_files = sorted(glob.glob('*.wav'))
-    if not wav_files:
-        os.chdir(original_dir)
-        raise ValueError(f"No .wav files found in {path}")
-
-    wav_files = sorted(glob.glob('*.wav'))
-
-    # Reference pressure and epsilon for calculations
-    P_REF = 1e-6  # reference pressure
-    EPSILON = np.finfo(float).eps
-
-    # Containers for combined results
-    combined_f = []
-    combined_t = []
-    combined_psd_db = []
-    combined_bb_spl_db = []
-
-    # Process each WAV file
-    for i, single_file in enumerate(wav_files, 1):
-        # Progress tracking
-        progress = int((i/len(wav_files))*100)
-        file_count = f"({i}/{len(wav_files)})"
-        progress_bar = "[" + "=" * (progress//2) + " " * (50 - progress//2) + "]"
-        print(f"\rProcessing {file_count} {progress_bar} {progress}%", end="", flush=True)
+    try:
+        # Change to input path
+        os.chdir(path)
         
-        # Load and calibrate audio
-        audio_object = Audio.from_file(single_file)
-        timestamp_str = extract_timestamp_from_filename(single_file)
-        start_time = pytz.timezone("UTC").localize(timestamp_str)
+        # Set output directory
+        output_dir = output_dir or path
+        os.makedirs(output_dir, exist_ok=True)
 
-        audio_object = calibrate_hydrophone_signal(audio_object, sensitivity, gain, bit_depth=16)
+        # Find WAV files
+        wav_files = sorted(glob.glob('*.wav'))
+        if not wav_files:
+            raise ValueError(f"No .wav files found in {path}")
 
-        # Apply optional bandpass filter
-        samples = (audio_object.bandpass(low_f=low_f, high_f=high_f, order=4).samples 
-                   if low_f is not None and high_f is not None 
-                   else audio_object.samples)
+        # Reference pressure and epsilon for calculations
+        P_REF = 1e-6  # reference pressure
+        EPSILON = np.finfo(float).eps
 
-        # Determine sample rate
-        sample_rate = audio_object.sample_rate if fs is None else fs
-        
-        # Compute Welch's PSD
-        nperseg = int(sample_rate * window_length)
-        noverlap = int(nperseg * overlap)
+        # Containers for combined results
+        combined_f = []
+        combined_t = []
+        combined_psd_db = []
+        combined_bb_spl_db = []
 
-        f, psd_welch = signal.welch(
-            samples, 
-            fs=sample_rate,
-            window=window, 
-            nperseg=nperseg,
-            noverlap=noverlap, 
-            scaling=scaling
-        )
-        
-        # Convert PSD to dB
-        psd_db = 10 * np.log10(psd_welch / (P_REF**2))
-        
-        # Compute broadband SPL
-        power_total = np.trapz(psd_welch, f)
-        bb_spl_db = 10 * np.log10(power_total / (P_REF**2) + EPSILON)
-        
-        # Collect data for combined dataset
-        combined_f = f  # Frequency array is the same for all files
-        start_time_utc = start_time.astimezone(pytz.UTC).replace(tzinfo=None)
-        combined_t.append(np.datetime64(start_time_utc))
+        # Track processed and skipped files
+        processed_files = []
+        skipped_files = []
 
-        combined_psd_db.append(psd_db)
-        combined_bb_spl_db.append(bb_spl_db)
-     
-        # Save individual file result as NetCDF
-        # filename = os.path.splitext(single_file)[0] + '_processed.nc'
-        # output_path = os.path.join(output_dir, filename)
+        # Process each WAV file
+        for i, single_file in enumerate(wav_files, 1):
+            # Progress tracking
+            progress = int((i/len(wav_files))*100)
+            file_count = f"({i}/{len(wav_files)})"
+            progress_bar = "[" + "=" * (progress//2) + " " * (50 - progress//2) + "]"
+            print(f"\rProcessing {file_count} {progress_bar} {progress}%", end="", flush=True)
+            
+            try:
+                # Load audio file
+                audio_object = Audio.from_file(single_file)
+
+                # Extract timestamp
+                timestamp_str = extract_timestamp_from_filename(single_file)
+                start_time = pytz.timezone("UTC").localize(timestamp_str)
+
+                # Calibrate hydrophone signal
+                audio_object = calibrate_hydrophone_signal(audio_object, sensitivity, gain, bit_depth=16)
+
+                # Apply optional bandpass filter
+                samples = (audio_object.bandpass(low_f=low_f, high_f=high_f, order=4).samples 
+                           if low_f is not None and high_f is not None 
+                           else audio_object.samples)
+
+                # Determine sample rate
+                sample_rate = audio_object.sample_rate if fs is None else fs
+                
+                # Compute Welch's PSD
+                nperseg = int(sample_rate * window_length)
+                noverlap = int(nperseg * overlap)
+
+                f, psd_welch = signal.welch(
+                    samples, 
+                    fs=sample_rate,
+                    window=window, 
+                    nperseg=nperseg,
+                    noverlap=noverlap, 
+                    scaling=scaling
+                )
+                
+                # Convert PSD to dB
+                psd_db = 10 * np.log10(psd_welch / (P_REF**2))
+                
+                # Compute broadband SPL
+                power_total = np.trapz(psd_welch, f)
+                bb_spl_db = 10 * np.log10(power_total / (P_REF**2) + EPSILON)
+                
+                # Collect data for combined dataset
+                combined_f = f  # Frequency array is the same for all files
+                start_time_utc = start_time.astimezone(pytz.UTC).replace(tzinfo=None)
+                combined_t.append(np.datetime64(start_time_utc))
+
+                combined_psd_db.append(psd_db)
+                combined_bb_spl_db.append(bb_spl_db)
+                
+                processed_files.append(single_file)
+
+            except Exception as e:
+                print(f"\nError processing {single_file}: {e}")
+                skipped_files.append((single_file, str(e)))
+                continue
+
+        # Print processing summary
+        print("\n\nProcessing Summary:")
+        print(f"Total files: {len(wav_files)}")
+        print(f"Processed files: {len(processed_files)}")
+        print(f"Skipped files: {len(skipped_files)}")
         
-        ds = xr.Dataset(
+        if skipped_files:
+            print("\nSkipped Files:")
+            for file, error in skipped_files:
+                print(f"- {file}: {error}")
+
+        # Check if any files were processed
+        if not processed_files:
+            print("No files could be processed. Returning None.")
+            return None
+
+        # Create combined xarray Dataset
+        output_path = os.path.join(output_dir, output_filename)
+        combined_ds = xr.Dataset(
             {
-                'psd_db': (['frequency'], psd_db),
-                'bb_spl_db': bb_spl_db,
-                'time': start_time.timestamp()
+                'psd_db': (['time', 'frequency'], np.array(combined_psd_db)),
+                'bb_spl_db': (['time'], combined_bb_spl_db),
             },
-            coords={'frequency': f},
+            coords={
+                'frequency': combined_f,
+                'time': np.array(combined_t, dtype='datetime64[ns]')
+            },
             attrs={
                 'sensitivity': sensitivity,
                 'gain': gain,
@@ -241,50 +242,382 @@ def process_audio_files(path, sensitivity, gain, fs=None,
                 'overlap': overlap,
                 'scaling': scaling,
                 'low_f': low_f if low_f is not None else 'None',
-                'high_f': high_f if high_f is not None else 'None'
+                'high_f': high_f if high_f is not None else 'None',
+                'processed_files': processed_files,
+                'skipped_files': [f[0] for f in skipped_files]
             }
         )
-        # ds.to_netcdf(output_path)
-
-    # Save individual file result as NetCDF
-    # filename = 'All_files_processed.nc'
-    # output_path = os.path.join(output_dir, filename)
         
-    output_path = os.path.join(path, output_dir)
+        # Save combined dataset
+        combined_ds.to_netcdf(output_path)
+        print(f"\nCombined dataset saved to {output_path}")
 
-    # Print completion message
-    # print(f"\n\nProcessing complete! {len(wav_files)} files processed.\n")
+        return combined_ds
 
-    # Create combined xarray Dataset
-    combined_ds = xr.Dataset(
-        {
-            'psd_db': (['time', 'frequency'], np.array(combined_psd_db)),
-            'bb_spl_db': (['time'], combined_bb_spl_db),
-        },
-        coords={
-            'frequency': combined_f,
-            'time': np.array(combined_t, dtype='datetime64[ns]')
-        },
-        attrs={
-            'sensitivity': sensitivity,
-            'gain': gain,
-            'sample_rate': sample_rate,
-            'window': window,
-            'window_length': window_length,
-            'overlap': overlap,
-            'scaling': scaling,
-            'low_f': low_f if low_f is not None else 'None',
-            'high_f': high_f if high_f is not None else 'None'
-        }
-    )
+    except Exception as e:
+        print(f"Unexpected error in processing: {e}")
+        return None
+
+    finally:
+        # Always return to the original directory
+        os.chdir(original_dir)
+
+def process_audio_files_chunked(file_dict, sensitivity, gain, base_output_dir=None, fs=None, 
+                         window='hann', window_length=1.0, overlap=0.5, 
+                         scaling='density', low_f=None, high_f=None):
+    """
+    Process multiple WAV files from a provided dictionary of file lists.
     
-    combined_ds.to_netcdf(output_path)
-    # Print completion message
-    print(f"\n\nProcessing complete! {len(wav_files)} files processed.\n")
-
-    os.chdir(original_dir)
+    Parameters:
+    -----------
+    file_dict : dict
+        Dictionary where keys are output filenames and values are lists of full file paths
+    sensitivity : float
+        Hydrophone sensitivity
+    gain : float
+        Hydrophone gain
+    base_output_dir : str, optional
+        Base directory where output files will be saved. 
+        If None, uses the directory of the first file.
+    ... (other parameters remain the same as in original function)
     
-    return combined_ds
+    Returns:
+    --------
+    dict
+        Dictionary of xarray Datasets, with keys corresponding to input dictionary keys
+    """
+    # Suppress numpy runtime warnings
+    warnings.filterwarnings("ignore", category=RuntimeWarning)
+    
+    # Store original working directory
+    original_dir = os.getcwd()
+    
+    # Validate and prepare output
+    output_datasets = {}
+    
+    try:
+        # Validate input dictionary
+        if not file_dict or not all(isinstance(files, list) for files in file_dict.values()):
+            raise ValueError("Input must be a dictionary with lists of .wav file paths")
+
+        # Determine base output directory
+        if base_output_dir is None:
+            # Use directory of first file from first list in the dictionary
+            first_list = next(iter(file_dict.values()))
+            base_output_dir = os.path.dirname(first_list[0])
+
+        # Process each list of files
+        for output_filename, file_list in file_dict.items():
+            # Ensure filename ends with .nc
+            if not output_filename.endswith('.nc'):
+                output_filename += '.nc'
+
+            # Validate file list
+            if not file_list or not all(file.lower().endswith('.wav') for file in file_list):
+                print(f"Skipping {output_filename}: Invalid file list")
+                continue
+
+            # Create full output path
+            output_path = os.path.join(base_output_dir, output_filename)
+
+            # Reference pressure and epsilon for calculations
+            P_REF = 1e-6  # reference pressure
+            EPSILON = np.finfo(float).eps
+
+            # Containers for combined results
+            combined_f = []
+            combined_t = []
+            combined_psd_db = []
+            combined_bb_spl_db = []
+
+            # Track processed and skipped files
+            processed_files = []
+            skipped_files = []
+
+            # Process each WAV file
+            for i, single_file in enumerate(file_list, 1):
+                # Progress tracking
+                progress = int((i/len(file_list))*100)
+                file_count = f"({i}/{len(file_list)})"
+                progress_bar = "[" + "=" * (progress//2) + " " * (50 - progress//2) + "]"
+                print(f"\rProcessing {output_filename}: {file_count} {progress_bar} {progress}%", end="", flush=True)
+                
+                try:
+                    # Load audio file
+                    audio_object = Audio.from_file(single_file)
+
+                    # Extract timestamp
+                    timestamp_str = extract_timestamp_from_filename(os.path.basename(single_file))
+                    start_time = pytz.timezone("UTC").localize(timestamp_str)
+
+                    # Calibrate hydrophone signal
+                    audio_object = calibrate_hydrophone_signal(audio_object, sensitivity, gain, bit_depth=16)
+
+                    # Apply optional bandpass filter
+                    samples = (audio_object.bandpass(low_f=low_f, high_f=high_f, order=4).samples 
+                               if low_f is not None and high_f is not None 
+                               else audio_object.samples)
+
+                    # Determine sample rate
+                    sample_rate = audio_object.sample_rate if fs is None else fs
+                    
+                    # Compute Welch's PSD
+                    nperseg = int(sample_rate * window_length)
+                    noverlap = int(nperseg * overlap)
+
+                    f, psd_welch = signal.welch(
+                        samples, 
+                        fs=sample_rate,
+                        window=window, 
+                        nperseg=nperseg,
+                        noverlap=noverlap, 
+                        scaling=scaling
+                    )
+                    
+                    # Convert PSD to dB
+                    psd_db = 10 * np.log10(psd_welch / (P_REF**2))
+                    
+                    # Compute broadband SPL
+                    power_total = np.trapz(psd_welch, f)
+                    bb_spl_db = 10 * np.log10(power_total / (P_REF**2) + EPSILON)
+                    
+                    # Collect data for combined dataset
+                    combined_f = f  # Frequency array is the same for all files
+                    start_time_utc = start_time.astimezone(pytz.UTC).replace(tzinfo=None)
+                    combined_t.append(np.datetime64(start_time_utc))
+
+                    combined_psd_db.append(psd_db)
+                    combined_bb_spl_db.append(bb_spl_db)
+                    
+                    processed_files.append(single_file)
+
+                except Exception as e:
+                    print(f"\nError processing {single_file}: {e}")
+                    skipped_files.append((single_file, str(e)))
+                    continue
+
+            # Print processing summary for this file
+            print(f"\n\nProcessing Summary for {output_filename}:")
+            print(f"Total files: {len(file_list)}")
+            print(f"Processed files: {len(processed_files)}")
+            print(f"Skipped files: {len(skipped_files)}")
+            
+            if skipped_files:
+                print("\nSkipped Files:")
+                for file, error in skipped_files:
+                    print(f"- {file}: {error}")
+
+            # Check if any files were processed
+            if not processed_files:
+                print(f"No files could be processed for {output_filename}. Skipping.")
+                continue
+
+            # Create combined xarray Dataset
+            combined_ds = xr.Dataset(
+                {
+                    'psd_db': (['time', 'frequency'], np.array(combined_psd_db)),
+                    'bb_spl_db': (['time'], combined_bb_spl_db),
+                },
+                coords={
+                    'frequency': combined_f,
+                    'time': np.array(combined_t, dtype='datetime64[ns]')
+                },
+                attrs={
+                    'sensitivity': sensitivity,
+                    'gain': gain,
+                    'sample_rate': sample_rate,
+                    'window': window,
+                    'window_length': window_length,
+                    'overlap': overlap,
+                    'scaling': scaling,
+                    'low_f': low_f if low_f is not None else 'None',
+                    'high_f': high_f if high_f is not None else 'None',
+                    'processed_files': processed_files,
+                    'skipped_files': [f[0] for f in skipped_files]
+                }
+            )
+            
+            # Save combined dataset
+            combined_ds.to_netcdf(output_path)
+            print(f"\nCombined dataset saved to {output_path}")
+
+            # Store the dataset in the output dictionary
+            output_datasets[output_filename] = combined_ds
+
+        return output_datasets
+
+    except Exception as e:
+        print(f"Unexpected error in processing: {e}")
+        return None
+
+    finally:
+        # Always return to the original directory
+        os.chdir(original_dir)
+
+# def process_audio_files_chunked(path, sensitivity, gain, fs=None, 
+#                          window='hann', window_length=1.0, overlap=0.5, 
+#                          scaling='density', low_f=None, high_f=None, 
+#                          output_dir=None):
+#     """
+#     Process multiple WAV files from a provided list of full file paths to compute Power Spectral Density (PSD).
+    
+#     Parameters:
+#     -----------
+#     data_path : list
+#         List of full file paths to WAV files to be processed
+#     sensitivity : float
+#         Hydrophone sensitivity
+#     gain : float
+#         Hydrophone gain
+#     ... (other parameters remain the same as in original function)
+#     """
+#     # Suppress numpy runtime warnings
+#     warnings.filterwarnings("ignore", category=RuntimeWarning)
+    
+#     # Store original working directory
+#     original_dir = os.getcwd()
+    
+#     try:
+#         # Validate input
+#         if not data_path or not all(file.lower().endswith('.wav') for file in data_path):
+#             raise ValueError("Input must be a non-empty list of .wav file paths")
+
+#         # Set output directory (use directory of first file if not specified)
+#         if output_dir is None:
+#             output_dir = os.path.dirname(data_path[0])
+#         os.makedirs(output_dir, exist_ok=True)
+
+#         # Reference pressure and epsilon for calculations
+#         P_REF = 1e-6  # reference pressure
+#         EPSILON = np.finfo(float).eps
+
+#         # Containers for combined results
+#         combined_f = []
+#         combined_t = []
+#         combined_psd_db = []
+#         combined_bb_spl_db = []
+
+#         # Track processed and skipped files
+#         processed_files = []
+#         skipped_files = []
+
+#         # Process each WAV file
+#         for i, single_file in enumerate(data_path, 1):
+#             # Progress tracking
+#             progress = int((i/len(data_path))*100)
+#             file_count = f"({i}/{len(data_path)})"
+#             progress_bar = "[" + "=" * (progress//2) + " " * (50 - progress//2) + "]"
+#             print(f"\rProcessing {file_count} {progress_bar} {progress}%", end="", flush=True)
+            
+#             try:
+#                 # Load audio file
+#                 audio_object = Audio.from_file(single_file)
+
+#                 # Extract timestamp
+#                 timestamp_str = extract_timestamp_from_filename(os.path.basename(single_file))
+#                 start_time = pytz.timezone("UTC").localize(timestamp_str)
+
+#                 # Calibrate hydrophone signal
+#                 audio_object = calibrate_hydrophone_signal(audio_object, sensitivity, gain, bit_depth=16)
+
+#                 # Apply optional bandpass filter
+#                 samples = (audio_object.bandpass(low_f=low_f, high_f=high_f, order=4).samples 
+#                            if low_f is not None and high_f is not None 
+#                            else audio_object.samples)
+
+#                 # Determine sample rate
+#                 sample_rate = audio_object.sample_rate if fs is None else fs
+                
+#                 # Compute Welch's PSD
+#                 nperseg = int(sample_rate * window_length)
+#                 noverlap = int(nperseg * overlap)
+
+#                 f, psd_welch = signal.welch(
+#                     samples, 
+#                     fs=sample_rate,
+#                     window=window, 
+#                     nperseg=nperseg,
+#                     noverlap=noverlap, 
+#                     scaling=scaling
+#                 )
+                
+#                 # Convert PSD to dB
+#                 psd_db = 10 * np.log10(psd_welch / (P_REF**2))
+                
+#                 # Compute broadband SPL
+#                 power_total = np.trapz(psd_welch, f)
+#                 bb_spl_db = 10 * np.log10(power_total / (P_REF**2) + EPSILON)
+                
+#                 # Collect data for combined dataset
+#                 combined_f = f  # Frequency array is the same for all files
+#                 start_time_utc = start_time.astimezone(pytz.UTC).replace(tzinfo=None)
+#                 combined_t.append(np.datetime64(start_time_utc))
+
+#                 combined_psd_db.append(psd_db)
+#                 combined_bb_spl_db.append(bb_spl_db)
+                
+#                 processed_files.append(single_file)
+
+#             except Exception as e:
+#                 print(f"\nError processing {single_file}: {e}")
+#                 skipped_files.append((single_file, str(e)))
+#                 continue
+
+#         # Print processing summary
+#         print("\n\nProcessing Summary:")
+#         print(f"Total files: {len(data_path)}")
+#         print(f"Processed files: {len(processed_files)}")
+#         print(f"Skipped files: {len(skipped_files)}")
+        
+#         if skipped_files:
+#             print("\nSkipped Files:")
+#             for file, error in skipped_files:
+#                 print(f"- {file}: {error}")
+
+#         # Check if any files were processed
+#         if not processed_files:
+#             print("No files could be processed. Returning None.")
+#             return None
+
+#         # Create combined xarray Dataset
+#         output_path = os.path.join(output_dir, 'combined_processed.nc')
+#         combined_ds = xr.Dataset(
+#             {
+#                 'psd_db': (['time', 'frequency'], np.array(combined_psd_db)),
+#                 'bb_spl_db': (['time'], combined_bb_spl_db),
+#             },
+#             coords={
+#                 'frequency': combined_f,
+#                 'time': np.array(combined_t, dtype='datetime64[ns]')
+#             },
+#             attrs={
+#                 'sensitivity': sensitivity,
+#                 'gain': gain,
+#                 'sample_rate': sample_rate,
+#                 'window': window,
+#                 'window_length': window_length,
+#                 'overlap': overlap,
+#                 'scaling': scaling,
+#                 'low_f': low_f if low_f is not None else 'None',
+#                 'high_f': high_f if high_f is not None else 'None',
+#                 'processed_files': processed_files,
+#                 'skipped_files': [f[0] for f in skipped_files]
+#             }
+#         )
+        
+#         # Save combined dataset
+#         combined_ds.to_netcdf(output_path)
+#         print(f"\nCombined dataset saved to {output_path}")
+
+#         return combined_ds
+
+#     except Exception as e:
+#         print(f"Unexpected error in processing: {e}")
+#         return None
+
+#     finally:
+#         # Always return to the original directory
+#         os.chdir(original_dir)
 
 def chunk_path(DATA_PATH, OUTPUT_PATH=None, time_segment="1D"):
     """
@@ -537,7 +870,7 @@ def plot_bb_spl(times, rms_spl, percentiles=None,
                 width=8, height=4, 
                 title='Broadband SPL Segmentation', 
                 grid=True, ylim=None, 
-                save=False, xlabel=None, ylabel=None
+                save=False, xlabel=None, ylabel=None,
                 filename='broadband_spl_plot.png', 
                 dpi=300):
     """
