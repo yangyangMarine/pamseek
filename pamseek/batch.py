@@ -10,6 +10,10 @@ import matplotlib.pyplot as plt
 import pytz
 from datetime import datetime, timedelta
 import shutil
+import netCDF4
+
+import seaborn as sns
+from pandas.api.types import is_datetime64_any_dtype as is_datetime
 
 from opensoundscape import Audio
 
@@ -104,6 +108,36 @@ def calibrate_hydrophone_signal(audio_data, sensitivity_db, gain=0, bit_depth=16
     else:
         return sound_pressure
 
+def list_files(datapath, keyword):
+    """
+    Lists all files in the specified directory that contain the given keyword in their filename.
+    
+    Args:
+        datapath (str): Path to the directory to search in.
+        keyword (str): Keyword to filter filenames by.
+    
+    Returns:
+        list: A list of full paths to files containing the keyword in their names.
+        
+    Raises:
+        FileNotFoundError: If the specified directory does not exist.
+        TypeError: If the inputs are not strings.
+    """
+    # Check input types
+    if not isinstance(datapath, str):
+        raise TypeError("datapath must be a string")
+    if not isinstance(keyword, str):
+        raise TypeError("keyword must be a string")
+    
+    # Check if directory exists
+    if not os.path.exists(datapath):
+        raise FileNotFoundError(f"Directory not found: {datapath}")
+    if not os.path.isdir(datapath):
+        raise NotADirectoryError(f"Path is not a directory: {datapath}")
+    
+    return [os.path.join(datapath, f) for f in os.listdir(datapath) if keyword in f]
+
+
 def process_audio_files(path, sensitivity, gain, fs=None, 
                          window='hann', window_length=1.0, overlap=0.5, 
                          scaling='density', low_f=None, high_f=None, 
@@ -116,7 +150,6 @@ def process_audio_files(path, sensitivity, gain, fs=None,
     
     # Store original working directory
     original_dir = os.getcwd()
-    
     try:
         # Change to input path
         os.chdir(path)
@@ -165,8 +198,8 @@ def process_audio_files(path, sensitivity, gain, fs=None,
 
                 # Apply optional bandpass filter
                 samples = (audio_object.bandpass(low_f=low_f, high_f=high_f, order=4).samples 
-                           if low_f is not None and high_f is not None 
-                           else audio_object.samples)
+                            if low_f is not None and high_f is not None 
+                            else audio_object.samples)
 
                 # Determine sample rate
                 sample_rate = audio_object.sample_rate if fs is None else fs
@@ -249,18 +282,17 @@ def process_audio_files(path, sensitivity, gain, fs=None,
         )
         
         # Save combined dataset
-        combined_ds.to_netcdf(output_path)
+        # Then save with explicit encoding for any Unicode variables, to deal with netCDF4 issues, ('U', 224 error)
+        encoding = {var: {'dtype': 'str'} for var in combined_ds.variables if combined_ds[var].dtype.kind == 'U'}
+        combined_ds.to_netcdf(output_path, engine='netcdf4',encoding=encoding)
         print(f"\nCombined dataset saved to {output_path}")
 
-        return combined_ds
-
     except Exception as e:
-        print(f"Unexpected error in processing: {e}")
-        return None
+            print(f"Unexpected error in processing: {e}")
+            return None
 
-    finally:
-        # Always return to the original directory
-        os.chdir(original_dir)
+    return combined_ds
+    os.chdir(original_dir)
 
 def process_audio_files_chunked(file_dict, sensitivity, gain, base_output_dir=None, fs=None, 
                          window='hann', window_length=1.0, overlap=0.5, 
@@ -454,170 +486,7 @@ def process_audio_files_chunked(file_dict, sensitivity, gain, base_output_dir=No
         # Always return to the original directory
         os.chdir(original_dir)
 
-# def process_audio_files_chunked(path, sensitivity, gain, fs=None, 
-#                          window='hann', window_length=1.0, overlap=0.5, 
-#                          scaling='density', low_f=None, high_f=None, 
-#                          output_dir=None):
-#     """
-#     Process multiple WAV files from a provided list of full file paths to compute Power Spectral Density (PSD).
-    
-#     Parameters:
-#     -----------
-#     data_path : list
-#         List of full file paths to WAV files to be processed
-#     sensitivity : float
-#         Hydrophone sensitivity
-#     gain : float
-#         Hydrophone gain
-#     ... (other parameters remain the same as in original function)
-#     """
-#     # Suppress numpy runtime warnings
-#     warnings.filterwarnings("ignore", category=RuntimeWarning)
-    
-#     # Store original working directory
-#     original_dir = os.getcwd()
-    
-#     try:
-#         # Validate input
-#         if not data_path or not all(file.lower().endswith('.wav') for file in data_path):
-#             raise ValueError("Input must be a non-empty list of .wav file paths")
 
-#         # Set output directory (use directory of first file if not specified)
-#         if output_dir is None:
-#             output_dir = os.path.dirname(data_path[0])
-#         os.makedirs(output_dir, exist_ok=True)
-
-#         # Reference pressure and epsilon for calculations
-#         P_REF = 1e-6  # reference pressure
-#         EPSILON = np.finfo(float).eps
-
-#         # Containers for combined results
-#         combined_f = []
-#         combined_t = []
-#         combined_psd_db = []
-#         combined_bb_spl_db = []
-
-#         # Track processed and skipped files
-#         processed_files = []
-#         skipped_files = []
-
-#         # Process each WAV file
-#         for i, single_file in enumerate(data_path, 1):
-#             # Progress tracking
-#             progress = int((i/len(data_path))*100)
-#             file_count = f"({i}/{len(data_path)})"
-#             progress_bar = "[" + "=" * (progress//2) + " " * (50 - progress//2) + "]"
-#             print(f"\rProcessing {file_count} {progress_bar} {progress}%", end="", flush=True)
-            
-#             try:
-#                 # Load audio file
-#                 audio_object = Audio.from_file(single_file)
-
-#                 # Extract timestamp
-#                 timestamp_str = extract_timestamp_from_filename(os.path.basename(single_file))
-#                 start_time = pytz.timezone("UTC").localize(timestamp_str)
-
-#                 # Calibrate hydrophone signal
-#                 audio_object = calibrate_hydrophone_signal(audio_object, sensitivity, gain, bit_depth=16)
-
-#                 # Apply optional bandpass filter
-#                 samples = (audio_object.bandpass(low_f=low_f, high_f=high_f, order=4).samples 
-#                            if low_f is not None and high_f is not None 
-#                            else audio_object.samples)
-
-#                 # Determine sample rate
-#                 sample_rate = audio_object.sample_rate if fs is None else fs
-                
-#                 # Compute Welch's PSD
-#                 nperseg = int(sample_rate * window_length)
-#                 noverlap = int(nperseg * overlap)
-
-#                 f, psd_welch = signal.welch(
-#                     samples, 
-#                     fs=sample_rate,
-#                     window=window, 
-#                     nperseg=nperseg,
-#                     noverlap=noverlap, 
-#                     scaling=scaling
-#                 )
-                
-#                 # Convert PSD to dB
-#                 psd_db = 10 * np.log10(psd_welch / (P_REF**2))
-                
-#                 # Compute broadband SPL
-#                 power_total = np.trapz(psd_welch, f)
-#                 bb_spl_db = 10 * np.log10(power_total / (P_REF**2) + EPSILON)
-                
-#                 # Collect data for combined dataset
-#                 combined_f = f  # Frequency array is the same for all files
-#                 start_time_utc = start_time.astimezone(pytz.UTC).replace(tzinfo=None)
-#                 combined_t.append(np.datetime64(start_time_utc))
-
-#                 combined_psd_db.append(psd_db)
-#                 combined_bb_spl_db.append(bb_spl_db)
-                
-#                 processed_files.append(single_file)
-
-#             except Exception as e:
-#                 print(f"\nError processing {single_file}: {e}")
-#                 skipped_files.append((single_file, str(e)))
-#                 continue
-
-#         # Print processing summary
-#         print("\n\nProcessing Summary:")
-#         print(f"Total files: {len(data_path)}")
-#         print(f"Processed files: {len(processed_files)}")
-#         print(f"Skipped files: {len(skipped_files)}")
-        
-#         if skipped_files:
-#             print("\nSkipped Files:")
-#             for file, error in skipped_files:
-#                 print(f"- {file}: {error}")
-
-#         # Check if any files were processed
-#         if not processed_files:
-#             print("No files could be processed. Returning None.")
-#             return None
-
-#         # Create combined xarray Dataset
-#         output_path = os.path.join(output_dir, 'combined_processed.nc')
-#         combined_ds = xr.Dataset(
-#             {
-#                 'psd_db': (['time', 'frequency'], np.array(combined_psd_db)),
-#                 'bb_spl_db': (['time'], combined_bb_spl_db),
-#             },
-#             coords={
-#                 'frequency': combined_f,
-#                 'time': np.array(combined_t, dtype='datetime64[ns]')
-#             },
-#             attrs={
-#                 'sensitivity': sensitivity,
-#                 'gain': gain,
-#                 'sample_rate': sample_rate,
-#                 'window': window,
-#                 'window_length': window_length,
-#                 'overlap': overlap,
-#                 'scaling': scaling,
-#                 'low_f': low_f if low_f is not None else 'None',
-#                 'high_f': high_f if high_f is not None else 'None',
-#                 'processed_files': processed_files,
-#                 'skipped_files': [f[0] for f in skipped_files]
-#             }
-#         )
-        
-#         # Save combined dataset
-#         combined_ds.to_netcdf(output_path)
-#         print(f"\nCombined dataset saved to {output_path}")
-
-#         return combined_ds
-
-#     except Exception as e:
-#         print(f"Unexpected error in processing: {e}")
-#         return None
-
-#     finally:
-#         # Always return to the original directory
-#         os.chdir(original_dir)
 
 def chunk_path(DATA_PATH, OUTPUT_PATH=None, time_segment="1D"):
     """
@@ -754,13 +623,14 @@ def compute_bb_spl(ds):
         - psd_db (dB) : Power Spectral Density
         - frequency (Hz) : Frequency bins
         - sensitivity (dB) : Sensor sensitivity (optional, from attributes)
-
+    
     Returns
     -------
     xarray.Dataset
         With variables:
         - time : Time coordinates from input
         - bb_spl : Computed broadband SPL (dB re 1 μPa)
+        - site : Site information from input dataset
     """
     # Frequency resolution
     df = float(ds.frequency[1] - ds.frequency[0])  # Hz
@@ -773,15 +643,27 @@ def compute_bb_spl(ds):
     # Integrate over frequency and convert to dB
     p_total = psd_linear.sum(dim='frequency') * df
     bb_spl = 10 * np.log10(p_total)  # dB re 1 μPa
-
-    time = ds.time
-    # Return as xarray with time coordinate
-    return xr.Dataset(
+    
+    # Return as xarray with time coordinate and site info
+    result = xr.Dataset(
         data_vars={
             'bb_spl': (('time'), bb_spl.data),
         },
         coords={'time': ds.time}
     )
+    
+    # Preserve site information if it exists
+    if 'site' in ds.variables:
+        result['site'] = ds.site
+    elif 'site' in ds.attrs:
+        result.attrs['site'] = ds.attrs['site']
+    
+    # Copy other relevant attributes
+    for attr in ds.attrs:
+        if attr not in result.attrs:
+            result.attrs[attr] = ds.attrs[attr]
+    
+    return result
 
 
 def segment_bb_spl(ds, segment_duration='30min'):
@@ -818,11 +700,36 @@ def segment_bb_spl(ds, segment_duration='30min'):
         percentiles              # Percentiles [n_segments × 5]
     )
 
-def plot_psd(x, y, percentiles=None, xscale='log', yscale='linear', 
-                       width=8, height=4, title='PSD', 
-                       grid=True, xlim=None, ylim=None, save=False, filename='spectrum_line_plot.png', 
-                       dpi=300, colors=None, xlabel=None, ylabel=None):
+def plot_psd_lineplot(x, y, percentiles=None, xscale='log', yscale='linear',
+             width=8, height=4, title='PSD', 
+             grid=True, xlim=None, ylim=None, save=False, filename='spectrum_line_plot.png',
+             dpi=300, colors=None, xlabel=None, ylabel=None, show_legend=True, ax=None):
     """
+    Plot PSD with optional percentiles and legend control.
+    
+    Args:
+        x: X-axis data (frequency or time)
+        y: Y-axis data (PSD or SPL values)
+        percentiles: Dictionary of percentile data
+        xscale: X-axis scale ('log' or 'linear')
+        yscale: Y-axis scale ('log' or 'linear')
+        width: Figure width
+        height: Figure height
+        title: Plot title
+        grid: Whether to show grid
+        xlim: X-axis limits tuple (min, max)
+        ylim: Y-axis limits tuple (min, max)
+        save: Whether to save figure
+        filename: Filename to save plot
+        dpi: Resolution for saved plot
+        colors: Dictionary mapping percentile labels to colors
+        xlabel: X-axis label
+        ylabel: Y-axis label
+        show_legend: Whether to show the legend (True or False)
+        ax: Existing axes to plot on (if None, create new figure)
+    
+    Returns:
+        matplotlib.axes.Axes: The plot's axes object
     """
     default_colors = {
         "1%": "lightblue",
@@ -836,43 +743,67 @@ def plot_psd(x, y, percentiles=None, xscale='log', yscale='linear',
     xlabel = xlabel if xlabel is not None else ('Frequency (Hz)' if percentiles else 'Time (s)')
     ylabel = ylabel if ylabel is not None else ('PSD (dB re 1 µPa²/Hz)' if percentiles else 'Broadband SPL (dB re 1 µPa)')
     
-    fig = plt.figure(figsize=(width, height))
-    plt.plot(x, y, label='RMS Level', color='red', linestyle='--', linewidth=2)
+    # Create figure if ax is not provided
+    if ax is None:
+        fig = plt.figure(figsize=(width, height))
+        ax = plt.gca()
+    
+    # Plot data
+    ax.plot(x, y, label='RMS Level', color='red', linestyle='--', linewidth=2)
     
     if percentiles:
         for label, values in percentiles.items():
             color = colors.get(label, 'gray')
-            plt.plot(x, values, '-', label=f'{label} Percentile', color=color, alpha=0.7)
+            ax.plot(x, values, '-', label=f'{label} Percentile', color=color, alpha=0.7)
     
-    plt.xscale(xscale)
-    plt.yscale(yscale)
+    # Set scales and limits
+    ax.set_xscale(xscale)
+    ax.set_yscale(yscale)
     if xlim is not None:
-        plt.xlim(xlim)
+        ax.set_xlim(xlim)
     if ylim is not None:
-        plt.ylim(ylim)
+        ax.set_ylim(ylim)
     
-    plt.title(title)
-    plt.xlabel(xlabel)
-    plt.ylabel(ylabel)
-    plt.grid(grid)
-    plt.legend(loc='best')
-    plt.tight_layout()
+    # Set labels and grid
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.grid(grid)
     
+    # Handle legend based on show_legend parameter
+    if show_legend:
+        ax.legend(loc='best')
+    else:
+        legend = ax.get_legend()
+        if legend is not None:
+            legend.remove()
+    
+    # Apply tight layout if creating a new figure
+    if ax is None:
+        plt.tight_layout()
+    
+    # Save if requested
     if save:
         full_path = os.path.abspath(filename)
         plt.savefig(full_path, dpi=dpi, bbox_inches='tight')
         print(f"Plot saved as {full_path}")
     
-    plt.show()
-    return None
+    # Only show if creating a new figure
+    if ax is None:
+        plt.show()
+    
+    return ax
 
-def plot_bb_spl(times, rms_spl, percentiles=None, 
-                width=8, height=4, 
-                title='Broadband SPL Segmentation', 
-                grid=True, ylim=None, 
-                save=False, xlabel=None, ylabel=None,
-                filename='broadband_spl_plot.png', 
-                dpi=300):
+
+def plot_bb_spl_lineplot(times, rms_spl, percentiles=None,
+                width=8, height=4,
+                title='Broadband SPL Segmentation',
+                grid=True, ylim=None,
+                save=False, xlabel='', ylabel='SPL (dB re 1 μPa)',
+                filename='broadband_spl_plot.png',
+                dpi=300,
+                show_legend=True,
+                fixed_width=True):
     """
     Plot segmented broadband Sound Pressure Level (SPL) data.
     
@@ -901,56 +832,83 @@ def plot_bb_spl(times, rms_spl, percentiles=None,
         Filename for saved plot (default: 'broadband_spl_plot.png')
     dpi : int, optional
         Resolution of saved plot (default: 300)
+    show_legend : bool, optional
+        Whether to show the legend (default: True)
+    fixed_width : bool, optional
+        Whether to maintain consistent width regardless of x-axis length (default: True)
     
     Returns
     -------
     matplotlib.figure.Figure
         The created figure object
     """
+
     # Create figure and axis
-    fig, ax = plt.subplots(figsize=(width, height))
+    if fixed_width:
+        # Use constrained layout for better automatic spacing
+        fig, ax = plt.subplots(figsize=(width, height), constrained_layout=True)
+    else:
+        fig, ax = plt.subplots(figsize=(width, height))
     
-    # Define percentile colors
-    percentile_colors = {
-        "1%": "lightblue",
-        "5%": "skyblue",
-        "50%": "blue",
-        "95%": "darkblue",
-        "99%": "navy"
-    }
+    # Plot RMS Level as a red line
+    ax.plot(times, rms_spl, label='RMS Level', color='red', linewidth=2)
     
-    # Plot RMS Level
-    ax.plot(times, rms_spl, label='RMS Level', color='red', linestyle='--', linewidth=2)
-    
-    # Plot percentiles if provided
+    # Plot percentiles as shaded area if provided
     if percentiles is not None:
-        percentile_labels = ["1%", "5%", "50%", "95%", "99%"]
-        for i, label in enumerate(percentile_labels):
-            ax.plot(times, percentiles[:, i], 
-                   '-', 
-                   label=f'{label} Percentile', 
-                   color=percentile_colors[label], 
-                   alpha=0.7)
+        # Get 5% and 95% percentiles (indices 1 and 3)
+        lower_percentile = percentiles[:, 1]  # 5%
+        upper_percentile = percentiles[:, 3]  # 95%
+        
+        # Create shaded area between 5% and 95% percentiles
+        ax.fill_between(times, lower_percentile, upper_percentile, 
+                        color='gray', alpha=0.3, label='5-95% Percentile')
     
-    # Format x-axis as time
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-    plt.xticks(rotation=45)
+    # Format x-axis to show only year and month
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+
+    # Get all unique months in the data
+    try:
+        import pandas as pd
+        pd_times = pd.to_datetime(times)
+        month_starts = pd.Series(pd_times.strftime('%Y-%m')).unique()
+        x_labels = month_starts
+    except ImportError:
+        month_strings = np.array([np.datetime_as_string(t, unit='M') for t in times])
+        x_labels = np.unique(month_strings)
+
+    # Set x-ticks and rotate them
+    plt.xticks(x_labels, rotation=45, ha='left')
+    ax.tick_params(axis='x', pad=0)     
+
+    # Add vertical lines to separate months
+    try:
+        for i in range(1, len(month_starts)):
+            month_dt = pd.to_datetime(month_starts[i])
+            ax.axvline(month_dt, color='gray', linestyle=':', alpha=0.7)
+    except NameError:
+        for month_str in np.unique(month_strings)[1:]:
+            month_dt = np.datetime64(month_str)
+            ax.axvline(month_dt, color='gray', linestyle=':', alpha=0.7)
     
     # Add labels and title
     ax.set_title(title)
     ax.set_xlabel(xlabel)
-    ax.set_xlabel(ylabel)
-
+    ax.set_ylabel(ylabel)
+    
     # Set y-axis limits if specified
     if ylim is not None:
         ax.set_ylim(ylim)
     
     # Add grid and legend
-    ax.grid(grid, linestyle=':', alpha=0.7)
-    ax.legend(loc='best')
+    if grid:
+        ax.grid(linestyle=':', alpha=0.5)
     
-    plt.tight_layout()
+    if show_legend:
+        ax.legend(loc='lower right')
+    
+    if not fixed_width:
+        plt.tight_layout()
     
     # Save plot if requested
     if save:
@@ -959,10 +917,10 @@ def plot_bb_spl(times, rms_spl, percentiles=None,
         print(f"Plot saved as {full_path}")
     
     plt.show()
-    return fig
+    return None
 
 
-def boxplot_bb_spl(ds, segment_duration='30min', width=8, height=4,
+def plot_bb_spl_boxplot(ds, segment_duration='30min', width=8, height=4,
                    title='Broadband SPL Box Plot', grid=True, xlim=None, ylim=None,
                    save=False, filename='bb_spl_box_plot.png', dpi=300,
                    xlabel=None, ylabel=None, showfliers=True, color='skyblue'):
@@ -1005,8 +963,10 @@ def boxplot_bb_spl(ds, segment_duration='30min', width=8, height=4,
 
     # Format x-axis with actual time labels
     ax.set_xticks(positions)
-    ax.set_xticklabels([edge.strftime('%Y-%m-%d %H:%M') for edge in bin_edges], 
+    ax.set_xticklabels([edge.strftime('%Y-%m') for edge in bin_edges], 
                        rotation=45, ha='right')
+    # ax.set_xticklabels([edge.strftime('%Y-%m-%d %H:%M') for edge in bin_edges], 
+    #                    rotation=45, ha='right')
 
     # Set labels and title
     ax.set_xlabel(xlabel if xlabel else f'Time ({segment_duration})')
@@ -1030,6 +990,273 @@ def boxplot_bb_spl(ds, segment_duration='30min', width=8, height=4,
     
     plt.show()
     return None
+
+def plot_grouped_bb_spl_lineplot(times_list, rms_spl_list, percentiles=None,
+                width=8, height=4,
+                title='Broadband SPL Segmentation',
+                grid=True, ylim=None,
+                save=False, xlabel='', ylabel='SPLrms (dB re 1 μPa)',
+                filename='broadband_spl_plot.png',
+                dpi=300,
+                show_legend=True,
+                fixed_width=True,
+                labels=None,
+                colors=None,
+                linestyles=None):
+    """
+    Plot multiple broadband Sound Pressure Level (SPL) data series.
+    
+    Parameters
+    ----------
+    times_list : list of array-like
+        List of arrays containing segment center times (datetime64 or datetime objects)
+    rms_spl_list : list of array-like
+        List of arrays containing RMS SPL values for each segment
+    percentiles : list of array-like, optional
+        List of percentile values with shape (n_segments, 5) for each series
+        Columns should correspond to [1%, 5%, 50%, 95%, 99%] percentiles
+        Set to None to skip plotting percentiles
+    width : float, optional
+        Figure width in inches (default: 8)
+    height : float, optional
+        Figure height in inches (default: 4)
+    title : str, optional
+        Plot title (default: 'Broadband SPL Segmentation')
+    grid : bool, optional
+        Whether to show grid lines (default: True)
+    ylim : tuple, optional
+        Y-axis limits (default: None)
+    save : bool, optional
+        Whether to save the plot (default: False)
+    filename : str, optional
+        Filename for saved plot (default: 'broadband_spl_plot.png')
+    dpi : int, optional
+        Resolution of saved plot (default: 300)
+    show_legend : bool, optional
+        Whether to show the legend (default: True)
+    fixed_width : bool, optional
+        Whether to maintain consistent width regardless of x-axis length (default: True)
+    labels : list of str, optional
+        Labels for each data series (default: None, will use 'Series 1', 'Series 2', etc.)
+    colors : list of str, optional
+        Colors for each data series (default: None, will use default color cycle)
+    linestyles : list of str, optional
+        Line styles for each data series (default: None, will use solid lines)
+    
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The created figure object
+    """
+    
+    # Handle single time series case by converting to lists
+    if not isinstance(times_list[0], (list, tuple, np.ndarray)) or (
+            hasattr(times_list[0], 'shape') and len(times_list[0].shape) == 0):
+        times_list = [times_list]
+        rms_spl_list = [rms_spl_list]
+        if percentiles is not None and not isinstance(percentiles[0], (list, tuple, np.ndarray)):
+            percentiles = [percentiles]
+    
+    # Set default labels if not provided
+    if labels is None:
+        labels = [f'Series {i+1}' for i in range(len(times_list))]
+    
+    # Set default colors if not provided
+    if colors is None:
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    
+    # Set default linestyles if not provided
+    if linestyles is None:
+        linestyles = ['-'] * len(times_list)
+    
+    # Create figure and axis
+    if fixed_width:
+        # Use constrained layout for better automatic spacing
+        fig, ax = plt.subplots(figsize=(width, height), constrained_layout=True)
+    else:
+        fig, ax = plt.subplots(figsize=(width, height))
+    
+    # Collect all times to determine overall x-axis range
+    all_times = []
+    for times in times_list:
+        all_times.extend(times)
+    
+    # Plot each data series
+    for i, (times, rms_spl) in enumerate(zip(times_list, rms_spl_list)):
+        color_idx = i % len(colors)
+        line_idx = i % len(linestyles)
+        
+        # Plot RMS Level
+        ax.plot(times, rms_spl, 
+                label=labels[i], 
+                color=colors[color_idx], 
+                linestyle=linestyles[line_idx],
+                linewidth=2)
+        
+        # Plot percentiles as shaded area if provided
+        if percentiles is not None and i < len(percentiles) and percentiles[i] is not None:
+            # Get 5% and 95% percentiles (indices 1 and 3)
+            lower_percentile = percentiles[i][:, 1]  # 5%
+            upper_percentile = percentiles[i][:, 3]  # 95%
+            
+            # Create shaded area between 5% and 95% percentiles
+            ax.fill_between(times, lower_percentile, upper_percentile, 
+                            color=colors[color_idx], alpha=0.3, 
+                            label=f'{labels[i]} 5-95% Percentile')
+    
+    # Format x-axis to show only year and month
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+
+    # Get all unique months in the data
+    try:
+        import pandas as pd
+        pd_times = pd.to_datetime(all_times)
+        month_starts = pd.Series(pd_times.strftime('%Y-%m')).unique()
+        x_labels = [pd.to_datetime(month) for month in month_starts]
+    except ImportError:
+        month_strings = np.array([np.datetime_as_string(t, unit='M') for t in all_times])
+        unique_months = np.unique(month_strings)
+        x_labels = [np.datetime64(month) for month in unique_months]
+
+    # Set x-ticks and rotate them
+    plt.xticks(x_labels, rotation=45, ha='left')
+    ax.tick_params(axis='x', pad=0)     
+
+    # Add vertical lines to separate months
+    try:
+        for month_dt in x_labels[1:]:  # Skip the first month
+            ax.axvline(month_dt, color='gray', linestyle=':', alpha=0.7)
+    except Exception:
+        pass  # Skip if there's an issue with the vertical lines
+    
+    # Add labels and title
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    
+    # Set y-axis limits if specified
+    if ylim is not None:
+        ax.set_ylim(ylim)
+    
+    # Add grid and legend
+    if grid:
+        ax.grid(linestyle=':', alpha=0.5)
+    
+    if show_legend:
+        ax.legend(loc='best')
+    
+    if not fixed_width:
+        plt.tight_layout()
+    
+    # Save plot if requested
+    if save:
+        full_path = os.path.abspath(filename)
+        plt.savefig(full_path, dpi=dpi, bbox_inches='tight')
+        print(f"Plot saved as {full_path}")
+    
+    return None
+
+def plot_grouped_bb_spl_boxplot(
+    data,                      # Input data (xarray Dataset or DataFrame)
+    segment_duration='1M',      # Time segment: '1M' (monthly), '30min', '1D', etc.
+    width=8,                   # Plot width (inches)
+    height=4,                  # Plot height (inches)
+    title='Broadband SPL Box Plot',  # Plot title
+    grid=True,                 # Show grid?
+    xlim=None,                 # X-axis limits (e.g., [start, end])
+    ylim=None,                 # Y-axis limits (e.g., [min, max])
+    save=False,                # Save plot?
+    filename='bb_spl_box_plot.png',  # Output filename
+    xlabel=None,               # Custom x-axis label
+    ylabel=None,               # Custom y-axis label
+    showfliers=True,           # Show outliers?
+    color='RdBu',           # Box color (single color or palette name)
+    hue_order=None,            # Order of sites (e.g., ['Site1A', 'Site3A', 'Site4A'])
+    bbox_to_anchor=(1, 1),
+    loc='upper right'          # Legend position
+):
+    """
+    Plots a grouped boxplot of broadband SPL by site and time segment.
+    
+    Parameters:
+    -----------
+    data : xarray.Dataset or pd.DataFrame
+        Input data with 'bb_spl', 'time', and 'site' dimensions.
+    segment_duration : str
+        Pandas-compatible time frequency (e.g., '1M', '30min', '1D').
+    width, height : float
+        Plot dimensions in inches.
+    title, xlabel, ylabel : str
+        Plot labels.
+    grid, showfliers : bool
+        Toggle grid/outliers.
+    xlim, ylim : list
+        Axis limits.
+    save : bool
+        Save the plot to file.
+    filename : str
+        Output filename (if save=True).
+    color : str
+    """
+    # Convert to DataFrame if not already
+    if not isinstance(data, pd.DataFrame):
+        df = data['bb_spl'].to_dataframe().reset_index()
+    else:
+        df = data.copy()
+    
+    # Ensure 'time' is datetime
+    if not is_datetime(df['time']):
+        df['time'] = pd.to_datetime(df['time'])
+    
+    # Drop NaNs
+    df = df.dropna(subset=['bb_spl'])
+    
+    # Segment time into bins
+    if segment_duration.endswith('min'):
+        freq = f'{int(segment_duration[:-3])}T'  # '30min' → '30T'
+    else:
+        freq = segment_duration
+    
+    df['time_segment'] = df['time'].dt.to_period(freq).astype(str)
+    
+    # Set up plot
+    plt.figure(figsize=(width, height))
+    
+    # Create boxplot
+    sns.boxplot(
+        data=df,
+        x='time_segment',
+        y='bb_spl',
+        hue='site',
+        hue_order=hue_order,
+        palette=color if isinstance(color, (str, dict, list)) else None,
+        showfliers=showfliers,
+        width=0.6,
+    )
+    
+    # Customize plot
+    plt.title(title, fontsize=14)
+    plt.xlabel(xlabel if xlabel else 'Time Segment (' + segment_duration + ')', fontsize=12)
+    plt.ylabel(ylabel if ylabel else 'BB SPL (dB)', fontsize=12)
+    plt.xticks(rotation=45, ha='right')
+    plt.legend(title='', bbox_to_anchor=bbox_to_anchor, loc=loc)
+    
+    if grid:
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+    if xlim:
+        plt.xlim(xlim)
+    if ylim:
+        plt.ylim(ylim)
+    
+    plt.tight_layout()
+    
+    if save:
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        print(f"Plot saved as {filename}")
+    
+    plt.show()
+
 
 def compute_toctave_band(center_f):
     """
