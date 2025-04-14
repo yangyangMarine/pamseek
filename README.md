@@ -1,6 +1,7 @@
 # pamseek
 
-`pamseek` is an underwater Passive Acoustic Monitoring (PAM) data analysis repo designed to facilitate reproducible reporting, writing, and analysis of sound metrics from audio files. This package aims to streamline the analysis of underwater soundscape data, enabling more efficient data processing and interpretation.
+`pamseek` is an underwater Passive Acoustic Monitoring (PAM) data analysis package designed to streamline and standardize the processing, analysis, and reporting of underwater soundscape metrics. 
+**This package is built with multiprocessing support using Python’s multiprocessing module, allowing it to handle large audio datasets efficiently by leveraging multiple CPU cores.** This parallel processing capability significantly speeds up PAM data analysis, making it ideal for high-throughput workflows and long-term monitoring projects.
 
 ## Features
 
