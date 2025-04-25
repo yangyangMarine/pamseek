@@ -48,10 +48,10 @@ ds_toctave_125Hz = pamseek.process_audio_files(
     output_filename="OToctave_band_125Hz.nc"
 )
 ```
-
 Processing displays a progress bar and automatically skips corrupted files. Results are saved in NetCDF format with a confirmation message showing the file location.
+![Speed Processing](hhttps://github.com/yangyangMarine/pamseek/blob/main/docs/batch.png)
 
-## Visualization Examples
+## Examples
 
 ### LTSA (Long-Term Spectral Average)
 ```python
