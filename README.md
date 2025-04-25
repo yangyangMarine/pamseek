@@ -5,7 +5,7 @@
 
 ## Features
 
-- **Batch Loading Audio Files**: Efficiently load and process multiple audio files for analysis.
+- **Batch Loading Audio Files**: Efficiently load and process multiple audio files for analysis, using multicore.
 - **Spectrogram Plotting**: Visualize time-frequency representations of sound using spectrograms.
 - **LTSA (Long-Term Spectral Average)**: Calculate and visualize the LTSA for sound data.
 - **PSD (Power Spectral Density)**: Compute and analyze the PSD for frequency domain analysis.
@@ -23,6 +23,25 @@ Install `pamseek` using pip:
 pip install pamseek
 
 import pamseek
+
+# Multi core, speedy process.
+
+DATA_PATH = r"E:\\Hydrophone\\2024-10"
+ds_toctave_125Hz = process_audio_files(
+    path=DATA_PATH,
+    sensitivity=-170.4,
+    gain=2.05,
+    fs=96000,
+    window='hann',
+    window_length=0.08533,
+    overlap=0.5,
+    scaling='density',
+    low_f=111,
+    high_f=140, 
+    n_processes=None,
+    output_dir="E:\\Hydrophone\\output",
+    output_filename="OToctave_band_125Hz.nc"
+)
 
 # Load audio file
 audio_data = pamseek.load_audio_files('path_to_audio_file.wav')
